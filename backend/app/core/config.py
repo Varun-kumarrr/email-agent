@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Email Agent API"
     ENVIRONMENT: str = "development"
+    LOG_LEVEL: str = "INFO"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg://postgres@localhost:5432/email_agent"
