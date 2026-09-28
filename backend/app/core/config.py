@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     # SMTP
     SMTP_TIMEOUT_SECONDS: float = 15.0
+    SMTP_RETRY_BACKOFF_SECONDS: float = 1.0
 
     # CORS — comma separated list of allowed frontend origins
     ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]

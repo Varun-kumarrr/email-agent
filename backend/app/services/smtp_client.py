@@ -102,14 +102,23 @@ def _open_connection(creds: SmtpCredentials, timeout: float) -> smtplib.SMTP:
     return server
 
 
-def send_message(creds: SmtpCredentials, message: EmailMessage, timeout: float | None = None) -> None:
-    """Send one message through the given SMTP account. Raises SmtpSendError."""
+def send_message(
+    creds: SmtpCredentials,
+    message: EmailMessage,
+    recipients: list[str] | None = None,
+    timeout: float | None = None,
+) -> None:
+    """Send one message through the given SMTP account. Raises SmtpSendError.
+
+    `recipients` is the full envelope list (To + CC + BCC). BCC addresses are
+    passed only here, never as a header, so other recipients cannot see them.
+    """
     server = None
     try:
         server = _open_connection(creds, timeout or settings.SMTP_TIMEOUT_SECONDS)
         if creds.username and creds.password:
             server.login(creds.username, creds.password)
-        server.send_message(message)
+        server.send_message(message, to_addrs=recipients)
     except Exception as exc:
         error = classify_error(exc)
         # Log only the safe code and exception type — never credentials or raw server text.

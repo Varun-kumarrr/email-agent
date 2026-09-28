@@ -9,6 +9,7 @@ class FakeSMTPController:
     def __init__(self):
         self.connections: list["FakeSMTP"] = []
         self.sent: list = []
+        self.envelopes: list = []
         self.fail_on: str | None = None  # "connect" | "starttls" | "login" | "send"
         self.error: BaseException | None = None
         self.fail_times: int | None = None  # fail only the first N attempts (for retry tests)
@@ -45,9 +46,10 @@ class FakeSMTPController:
                 self.logged_in_as = username
                 self.password_used = password
 
-            def send_message(self, message):
+            def send_message(self, message, to_addrs=None):
                 controller.maybe_fail("send")
                 controller.sent.append(message)
+                controller.envelopes.append(list(to_addrs) if to_addrs else None)
 
             def quit(self):
                 pass

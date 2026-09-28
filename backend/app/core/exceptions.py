@@ -61,6 +61,12 @@ class RateLimitError(AppError):
     message = "Sending limit reached"
 
 
+class EmailDeliveryError(AppError):
+    status_code = 502
+    code = "email_send_failed"
+    message = "The email could not be sent"
+
+
 class ServiceUnavailableError(AppError):
     status_code = 503
     code = "service_unavailable"

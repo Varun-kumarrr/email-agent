@@ -12,6 +12,7 @@ os.environ["SECRET_KEY"] = "test-secret-key-that-is-only-used-in-tests"
 os.environ["ENCRYPTION_KEY"] = ""
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["LLM_API_KEY"] = ""
+os.environ["SMTP_RETRY_BACKOFF_SECONDS"] = "0"
 
 import pytest
 from fastapi.testclient import TestClient
