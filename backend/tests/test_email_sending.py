@@ -92,6 +92,15 @@ def test_signature_appended_automatically(client, sender, smtp):
     assert content.count("Business Development Manager") == 1
 
 
+def test_duplicate_sign_off_removed_when_signature_has_one(client, sender, smtp, db_session):
+    _signature(client, sender, append=True)  # EXAMPLE_SIGNATURE starts with "Best Regards,"
+    client.post(SEND, json=EMAIL, headers=sender)  # EMAIL body ends with "Best regards,"
+    content = smtp.sent[0].get_content()
+    assert content.lower().count("regards") == 1
+    record = db_session.query(EmailHistory).one()
+    assert record.body.lower().count("regards") == 1
+
+
 def test_signature_not_duplicated_if_already_in_body(client, sender, smtp):
     _signature(client, sender, append=True)
     email = {**EMAIL, "body": EMAIL["body"] + "\n\n" + EXAMPLE_SIGNATURE}

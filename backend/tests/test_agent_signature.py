@@ -58,7 +58,8 @@ def test_auto_append_signature_is_previewed_not_duplicated(client, company, mock
     assert body["signature_policy"] == "appended_on_send"
     assert body["signature_preview"] == EXAMPLE_SIGNATURE
     assert "Business Development Manager" not in body["body"]  # added at send time instead
-    assert body["body"].rstrip().endswith("Best regards,")
+    # The saved signature starts with "Best Regards," so the draft has no closing of its own.
+    assert "regards" not in body["body"].lower()
 
 
 def test_manual_signature_is_included_in_editable_body(client, company, mock_llm):
@@ -100,6 +101,29 @@ def test_generation_does_not_send_or_record_anything(client, company, llm):
     client.post(GENERATE, json=REQUEST, headers=company)
     prefs = client.get("/api/v1/preferences", headers=company).json()
     assert prefs["sent_today"] == 0
+
+
+def test_signature_without_closing_gets_closing_line(client, company, mock_llm):
+    client.post(
+        SIGNATURE,
+        json={"signature_text": "Anjali\nABC Technologies", "enabled": True, "append_automatically": True},
+        headers=company,
+    )
+    body = client.post(GENERATE, json=REQUEST, headers=company).json()
+    assert body["body"].rstrip().endswith("Best regards,")
+
+
+def test_closing_helpers():
+    from app.utils.signature import is_closing_line, signature_has_closing
+
+    for line in ["Best regards,", "Regards", "Kind regards,", "Thanks!", "Thank you,", "Sincerely,", "Cheers"]:
+        assert is_closing_line(line), line
+    assert not is_closing_line("Best of luck with the launch.")
+    assert signature_has_closing("Best Regards,\nAnjali")
+    assert not signature_has_closing("Anjali\nABC")
+    body = "Hi,\n\nText\n\nBest regards,"
+    assert append_signature(body, "Best Regards,\nAnjali") == "Hi,\n\nText\n\nBest Regards,\nAnjali"
+    assert append_signature(body, "Anjali") == "Hi,\n\nText\n\nBest regards,\n\nAnjali"
 
 
 def test_signature_helpers():

@@ -35,6 +35,7 @@ class MockLLMProvider(LLMProvider):
         recipient = ctx.get("recipient_name") or "there"
         tone = ctx.get("tone", "professional")
         sender = ctx.get("sender_name") or company.get("contact_person")
+        person = company.get("contact_person") or ctx.get("sender_name")  # who is "I" in the email
 
         if services and customers:
             subject = f"{company_name}: {services[0]} for {customers[0].lower()}"
@@ -44,7 +45,7 @@ class MockLLMProvider(LLMProvider):
             subject = f"Introducing {company_name}"
 
         greeting = f"Dear {recipient}," if tone == "formal" else f"Hi {recipient},"
-        intro = f"I'm {sender} from {company_name}." if sender else f"I'm reaching out from {company_name}."
+        intro = f"I'm {person} from {company_name}." if person else f"I'm reaching out from {company_name}."
         if company.get("description"):
             intro += f" {_sentence(company['description'])}"
         paragraphs = [greeting, intro]
@@ -67,7 +68,9 @@ class MockLLMProvider(LLMProvider):
         if policy == "include_in_body" and ctx.get("signature"):
             body += "\n\n" + ctx["signature"]
         elif policy == "appended_on_send":
-            body += "\n\nBest regards,"  # the saved signature is appended when sending
+            # The saved signature is appended when sending; add a sign-off only if it lacks one.
+            if not ctx.get("signature_includes_closing"):
+                body += "\n\nBest regards,"
         else:
             body += "\n\nBest regards," + (f"\n{sender}" if sender else f"\n{company_name}")
         return GeneratedEmail(subject=subject, body=body)

@@ -6,6 +6,7 @@ Everything comes from the authenticated company's own records.
 from typing import Any
 
 from app.models import Company, EmailConfiguration, EmailPreferences, EmailSignature
+from app.utils.signature import signature_has_closing
 
 # How the saved signature relates to the generated body:
 SIGNATURE_APPENDED_ON_SEND = "appended_on_send"  # enabled + append automatically: added when sending
@@ -58,4 +59,7 @@ def build_company_context(
         "reply_to": preferences.reply_to or (config.reply_to if config else None),
         "signature": signature.signature_text if policy != SIGNATURE_NONE else None,
         "signature_policy": policy,
+        "signature_includes_closing": bool(
+            policy != SIGNATURE_NONE and signature and signature_has_closing(signature.signature_text)
+        ),
     }

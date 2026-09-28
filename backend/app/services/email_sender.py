@@ -24,7 +24,7 @@ from app.services.email_config_service import EmailConfigService, build_credenti
 from app.services.preferences_service import PreferencesService
 from app.services.signature_service import SignatureService
 from app.services.smtp_client import SmtpSendError
-from app.utils.signature import ends_with_signature
+from app.utils.signature import append_signature, drop_trailing_closing, ends_with_signature, signature_has_closing
 
 logger = logging.getLogger(__name__)
 
@@ -68,18 +68,22 @@ class EmailSenderService:
         if wants_signature and signature is not None and not ends_with_signature(data.body, signature.signature_text):
             signature_text = signature.signature_text
 
+        body = data.body
+        if signature_text and signature_has_closing(signature_text):
+            body = drop_trailing_closing(body)  # avoid "Best regards," twice
+
         message = build_message(
             sender_email=config.email,
             sender_name=sender_name,
             recipient=recipient,
             subject=data.subject,
-            body=data.body,
+            body=body,
             email_format=email_format,
             cc=cc,
             reply_to=reply_to,
             signature=signature_text,
         )
-        final_body = data.body if not signature_text else f"{data.body.rstrip()}\n\n{signature_text.strip()}"
+        final_body = append_signature(data.body, signature_text) if signature_text else data.body
 
         attempts, error = self._deliver(config, message, envelope, max_retries=prefs.max_send_retries)
 
