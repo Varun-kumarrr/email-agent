@@ -23,6 +23,11 @@ export function getToken(): string | null {
   return token;
 }
 
+export function getExpiresAt(): number {
+  if (typeof window === "undefined") return 0;
+  return Number(localStorage.getItem(EXPIRES_KEY) || 0);
+}
+
 export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(EXPIRES_KEY);
