@@ -59,6 +59,28 @@ class FakeSMTPController:
         return self.connections[-1]
 
 
+class RecordingLLM:
+    """LLM double that records each request and returns a fixed email (or raises)."""
+
+    name = "recording"
+
+    def __init__(self, subject="Generated subject", body="Hi Priya,\n\nGenerated body.", error=None):
+        self.subject, self.body, self.error = subject, body, error
+        self.requests = []
+
+    def generate_email(self, request):
+        from app.services.llm import GeneratedEmail
+
+        self.requests.append(request)
+        if self.error is not None:
+            raise self.error
+        return GeneratedEmail(subject=self.subject, body=self.body)
+
+    @property
+    def last(self):
+        return self.requests[-1]
+
+
 def install_fake_smtp(monkeypatch) -> FakeSMTPController:
     controller = FakeSMTPController()
     monkeypatch.setattr(smtplib, "SMTP", controller.factory(ssl=False))

@@ -12,6 +12,7 @@ from app.db.database import get_db
 from app.models import Company, User
 from app.repositories.user_repository import UserRepository
 from app.services.company_service import CompanyProfileService
+from app.services.llm import LLMProvider, get_llm_provider
 
 bearer_scheme = HTTPBearer(auto_error=False, description="JWT from POST /api/v1/auth/login")
 
@@ -48,3 +49,11 @@ def get_current_company(db: DbSession, current_user: CurrentUser) -> Company:
 
 
 CurrentCompany = Annotated[Company, Depends(get_current_company)]
+
+
+def get_llm() -> LLMProvider:
+    """The configured LLM provider (overridable in tests via dependency_overrides)."""
+    return get_llm_provider()
+
+
+LLM = Annotated[LLMProvider, Depends(get_llm)]
