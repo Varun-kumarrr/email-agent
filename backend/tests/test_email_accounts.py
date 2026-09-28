@@ -323,6 +323,50 @@ def test_agent_uses_selected_accounts_sender_identity(client, company):
     assert "support@abctech.com" in llm.last.user_prompt and "ABC Support" in llm.last.user_prompt
 
 
+def test_send_with_nonexistent_account_is_404_and_records_nothing(client, company, monkeypatch, db_session):
+    smtp = install_fake_smtp(monkeypatch)
+    add(client, company, GMAIL)
+    response = client.post("/api/v1/emails/send", json={**EMAIL, "email_account_id": str(uuid.uuid4())}, headers=company)
+    assert response.status_code == 404
+    assert smtp.connections == []
+    assert db_session.query(EmailHistory).count() == 0
+
+
+def test_send_with_malformed_account_id_is_422(client, company, monkeypatch):
+    smtp = install_fake_smtp(monkeypatch)
+    add(client, company, GMAIL)
+    response = client.post("/api/v1/emails/send", json={**EMAIL, "email_account_id": "not-a-uuid"}, headers=company)
+    assert response.status_code == 422
+    assert smtp.connections == []
+
+
+def test_cannot_queue_with_another_companys_account(client, company, other_auth_headers, monkeypatch, celery_eager, db_session):
+    """Background mode: the ownership check happens before anything is recorded or queued."""
+    smtp = install_fake_smtp(monkeypatch)
+    victim = add(client, company, GMAIL)
+    create_company(client, other_auth_headers, XYZ_PROFILE)
+    add(client, other_auth_headers, {**GENERIC, "email_address": "info@xyzcorp.com"})
+    response = client.post(
+        "/api/v1/emails/send", json={**EMAIL, "email_account_id": victim["id"]}, headers=other_auth_headers
+    )
+    assert response.status_code == 404
+    assert smtp.connections == []
+    assert db_session.query(EmailHistory).count() == 0
+
+
+def test_selected_account_in_background_mode_is_the_one_recorded_and_used(client, company, monkeypatch, celery_eager, db_session):
+    smtp = install_fake_smtp(monkeypatch)
+    add(client, company, GMAIL)  # default
+    generic = add(client, company, GENERIC)
+    response = client.post("/api/v1/emails/send", json={**EMAIL, "email_account_id": generic["id"]}, headers=company)
+    assert response.status_code == 202
+    assert response.json()["email_account_id"] == generic["id"]
+    record = db_session.query(EmailHistory).one()
+    db_session.refresh(record)
+    assert str(record.email_account_id) == generic["id"] and record.status.value == "SENT"
+    assert smtp.last.host == "smtp.zoho.com"
+
+
 def test_send_with_no_account_is_404(client, company):
     response = client.post("/api/v1/emails/send", json=EMAIL, headers=company)
     assert response.status_code == 404

@@ -7,7 +7,16 @@ import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
 import { Alert, Field, PageHeader, StatusBadge, SubmitButton } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { firstInvalidEmail, isEmail, parseEmailList } from "@/lib/emails";
-import { FINAL_STATUSES, type EmailFormat, type EmailHistoryItem, type EmailTemplate, type GeneratedEmail, type SendEmailResult, type Tone } from "@/lib/types";
+import {
+  FINAL_STATUSES,
+  type EmailAccount,
+  type EmailFormat,
+  type EmailHistoryItem,
+  type EmailTemplate,
+  type GeneratedEmail,
+  type SendEmailResult,
+  type Tone,
+} from "@/lib/types";
 
 const TONES: { value: Tone; label: string }[] = [
   { value: "professional", label: "Professional" },
@@ -16,6 +25,19 @@ const TONES: { value: Tone; label: string }[] = [
   { value: "persuasive", label: "Persuasive" },
   { value: "concise", label: "Concise" },
 ];
+
+// Safe, human-readable account label (never includes credentials, which the API never returns).
+function accountLabel(a: EmailAccount): string {
+  const kind =
+    a.account_type === "OAUTH"
+      ? `${a.provider === "GMAIL" ? "Gmail" : "Outlook"} (OAuth)`
+      : a.provider === "GMAIL"
+        ? "Gmail (SMTP)"
+        : a.provider === "OUTLOOK"
+          ? "Outlook (SMTP)"
+          : "SMTP";
+  return `${kind} — ${a.sender_name} <${a.email_address}>`;
+}
 
 interface RequestForm {
   recipient_name: string;
@@ -54,6 +76,8 @@ export default function AgentPage() {
   const [sent, setSent] = useState<SendEmailResult | null>(null);
   const [noCompany, setNoCompany] = useState(false);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [accounts, setAccounts] = useState<EmailAccount[] | null>(null); // null until loaded
+  const [accountId, setAccountId] = useState(""); // "" = the company's default account
   const [delivery, setDelivery] = useState<EmailHistoryItem | null>(null);
   const [pollCount, setPollCount] = useState(0);
 
@@ -84,7 +108,20 @@ export default function AgentPage() {
       .catch((err) => {
         if (isMissingCompany(err)) setNoCompany(true);
       });
+    api
+      .listEmailAccounts()
+      .then(setAccounts)
+      .catch((err) => {
+        if (isMissingCompany(err)) setNoCompany(true);
+        else setAccounts([]);
+      });
   }, []);
+
+  // Only active accounts can send. The backend re-checks ownership and status on every request.
+  const activeAccounts = (accounts ?? []).filter((a) => a.is_active);
+  const defaultAccount = activeAccounts.find((a) => a.is_default) ?? null;
+  const noAccount = accounts !== null && activeAccounts.length === 0;
+  const sendingAccount = activeAccounts.find((a) => a.id === accountId) ?? defaultAccount;
 
   const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
 
@@ -119,6 +156,7 @@ export default function AgentPage() {
         purpose: request.purpose.trim(),
         tone: request.tone,
         additional_instructions: request.additional_instructions.trim() || null,
+        email_account_id: accountId || null,
         template_id: templateId || null,
         template_variables: Object.fromEntries(Object.entries(templateVars).filter(([, v]) => v.trim())),
       });
@@ -148,6 +186,12 @@ export default function AgentPage() {
     if (!draft) return;
     setSendError("");
     setSent(null);
+    if (!sendingAccount) {
+      setSendError(
+        noAccount ? "No email account configured. Add an email account before sending." : "Choose the email account to send from.",
+      );
+      return;
+    }
     const errors: Record<string, string> = {};
     const cc = parseEmailList(draft.cc);
     const bcc = parseEmailList(draft.bcc);
@@ -161,7 +205,7 @@ export default function AgentPage() {
     if (badBcc) errors.bcc = `Invalid address: ${badBcc}`;
     setDraftErrors(errors);
     if (Object.keys(errors).length) return;
-    if (!window.confirm(`Send this email to ${draft.recipient}?`)) return;
+    if (!window.confirm(`Send this email to ${draft.recipient} from ${sendingAccount.email_address}?`)) return;
 
     setSending(true);
     try {
@@ -173,6 +217,7 @@ export default function AgentPage() {
         cc,
         bcc,
         append_signature: generated?.signature_preview ? draft.appendSignature : null,
+        email_account_id: accountId || null,
       });
       setDelivery(null);
       setPollCount(0);
@@ -207,7 +252,32 @@ export default function AgentPage() {
 
       <form className="card" onSubmit={generate} noValidate>
         <h2>1. What should the email say?</h2>
+        {noAccount && (
+          <Alert kind="warning">
+            No email account configured. Add an email account before sending.{" "}
+            <Link href="/email-accounts">Go to Email Accounts</Link>
+          </Alert>
+        )}
         <div className="grid grid-2">
+          {activeAccounts.length > 0 && (
+            <Field
+              label="Send from"
+              htmlFor="email_account"
+              className="span-2"
+              hint="The draft is written for this sender, and the email is sent through this account."
+            >
+              <select id="email_account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                {defaultAccount && <option value="">Default account: {accountLabel(defaultAccount)}</option>}
+                {!defaultAccount && <option value="">Choose an account…</option>}
+                {activeAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {accountLabel(a)}
+                    {a.is_default ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field label="Recipient name *" htmlFor="recipient_name" error={requestErrors.recipient_name}>
             <input id="recipient_name" value={request.recipient_name} onChange={setReq("recipient_name")} placeholder="Priya Mehta" className={requestErrors.recipient_name ? "invalid" : ""} />
           </Field>
@@ -276,6 +346,9 @@ export default function AgentPage() {
           <p className="muted" style={{ marginTop: 0 }}>
             Generated by <span className="badge badge-info">{generated.provider}</span>. Check every fact before sending — AI can make mistakes.
           </p>
+          <p className="muted">
+            Sending from: <strong>{sendingAccount ? accountLabel(sendingAccount) : noAccount ? "no email account configured" : "choose an account above"}</strong>
+          </p>
           {generated.warning && <Alert kind="warning">{generated.warning}</Alert>}
           {generated.missing_template_variables.length > 0 && (
             <Alert kind="info">
@@ -327,7 +400,7 @@ export default function AgentPage() {
             <SubmitButton type="button" className="btn btn-secondary" loading={generating} onClick={() => generate()}>
               Generate Again
             </SubmitButton>
-            <SubmitButton type="button" loading={sending} onClick={send}>
+            <SubmitButton type="button" loading={sending} onClick={send} disabled={!sendingAccount}>
               Send Email
             </SubmitButton>
           </div>

@@ -114,7 +114,9 @@ One `EmailAccount` table holds both account types (`account_type`: `SMTP` or `OA
 * Responses expose only `password_configured` / `oauth_connected`.
 * **Default account**: the first active account becomes the default; `set-default` moves it; deleting
   or deactivating the default promotes the oldest active account; an inactive account can't be default.
-* **Selection**: `email_account_id` on send / generate; omitted → default account.
+* **Selection**: `email_account_id` on send / generate; omitted → default account. The AI Email Agent
+  page's *Send from* picker lists active accounts and sends the chosen ID for both generation and
+  sending; the server still enforces ownership and active status.
 * Delivery dispatches on the account: SMTP → `smtp_client.send_message`; Gmail OAuth →
   `gmail_delivery.send_via_gmail`. Both raise the same `SmtpSendError(code, message, transient)`, so
   retries, history and the worker are provider-independent.
@@ -176,9 +178,9 @@ transport for tests) and `MockLLMProvider` (deterministic, context-only). The en
 provider through the `get_llm` dependency.
 
 **Fallback**: if Gemini fails and `LLM_FALLBACK_TO_MOCK=true`, the mock writes the draft and the
-response carries `fallback_used: true` and a warning; otherwise 503. In live testing Gemini returned
-HTTP 503 `UNAVAILABLE` (high demand), so a successful live Gemini generation was **not** demonstrated;
-the fallback handled it.
+response carries `fallback_used: true` and a warning; otherwise 503. In live testing Gemini first
+returned HTTP 503 `UNAVAILABLE` (high demand), which the fallback handled; a later live request
+(2026-09-29) succeeded with `provider: gemini` and `fallback_used: false`.
 
 ## 13. Context construction
 

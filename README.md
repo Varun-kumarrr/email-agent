@@ -308,6 +308,13 @@ an optional `email_account_id`. If it is omitted, the company's default account 
 given, that account is used after the server checks it belongs to the caller's company (404
 otherwise) and is active (400 otherwise). The history record stores the account actually used.
 
+In the UI, the **AI Email Agent** page has a **Send from** selector listing the company's active
+accounts (type, provider, sender name, address, default marker — never credentials). Leaving it on
+*Default account* sends without `email_account_id` (the default is used); choosing an account sends
+its ID for both generation (sender identity) and sending. The review step shows *Sending from …*,
+and the send confirmation names the address. With no active account the page shows "No email account
+configured. Add an email account before sending." and disables *Send Email*.
+
 **Secrets are never returned by any API**: responses contain only `password_configured` /
 `oauth_connected`, never passwords, tokens, or ciphertext.
 
@@ -575,12 +582,14 @@ Configure Gemini (free tier, Google AI Studio):
 Free-tier limits change; see <https://ai.google.dev/gemini-api/docs/rate-limits>. To add another
 provider, implement `LLMProvider` and register it in `app/services/llm/__init__.py`.
 
-**Live Gemini status (honest result).** Real requests with a valid free-tier key reached the Gemini
-API (key accepted, model found) but returned **HTTP 503 `UNAVAILABLE`** — Google's temporary "model
-is experiencing high demand" response — for `gemini-3.5-flash-lite` and `gemini-3.8-flash`. A
-successful live Gemini generation has therefore **not** been demonstrated. The Gemini provider is
-covered by automated tests with simulated API responses, and the end-to-end workflow was verified
-with the mock fallback, which handled the 503 as designed.
+**Live Gemini status (honest result).** Earlier real requests with a valid free-tier key reached the
+Gemini API (key accepted, model found) but returned **HTTP 503 `UNAVAILABLE`** — Google's temporary
+"model is experiencing high demand" response — for `gemini-3.5-flash-lite` and `gemini-3.8-flash`;
+the mock fallback handled those failures as designed. A later live request (2026-09-29, model
+`gemini-3.8-flash`, from the AI Email Agent page) **succeeded**: the response reported
+`provider: gemini` and `fallback_used: false`, and the draft used the selected account's sender
+identity. Free-tier availability varies, so the 503 may recur; the fallback keeps the workflow usable.
+The Gemini provider is also covered by automated tests with simulated API responses.
 
 ## 18. Email sending & delivery states
 
@@ -933,7 +942,7 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 | **Gmail API delivery** | Verified: account Test email, and a real background send (API → Redis → Celery worker → Gmail API → `SENT`, 1 attempt, token refreshed automatically) |
 | Local SMTP delivery (Mailpit / local SMTP server) | Verified |
 | **Real Gmail SMTP delivery** | **Not demonstrated** — a working Gmail App Password was not available (Gmail rejected the configured password); covered by automated tests with a fake SMTP server |
-| **Live Gemini generation** | **Not demonstrated** — the API returned HTTP 503 `UNAVAILABLE` (high demand); mock fallback verified |
+| **Live Gemini generation** | Verified once (2026-09-29: `provider: gemini`, `fallback_used: false`); earlier attempts returned HTTP 503 `UNAVAILABLE` (high demand), handled by the mock fallback |
 | Gmail OAuth inside the Docker stack | Not configured / not tested (verified with the local backend, a local Celery worker and the Docker Redis) |
 | Outlook OAuth | Not implemented |
 
@@ -949,7 +958,8 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 
 * **Outlook / Microsoft 365 OAuth is not implemented** (Outlook works through SMTP if the mailbox
   allows SMTP AUTH).
-* Real Gmail SMTP delivery and live Gemini generation were not demonstrated (section 30).
+* Real Gmail SMTP delivery was not demonstrated (section 30).
+* The Gemini free tier can return HTTP 503 `UNAVAILABLE` under high demand; drafts then come from the mock fallback (flagged).
 * Gmail OAuth in Google's Testing mode: test users only, unverified-app warning, refresh tokens
   expire after 7 days.
 * JWT in `localStorage` (XSS-readable); no refresh tokens or server-side revocation; logout is client-side.
@@ -1006,7 +1016,8 @@ with code locations and tests. Summary:
 3. **Signature** → *Use example* → enable *Append automatically* → save.
 4. **Preferences** → sender name, reply-to, HTML format, default CC, limits, retries → save.
 5. **Templates** → create a template with `{{ recipient_name }}` / `{{ company_name }}` → preview.
-6. **AI Email Agent** → recipient, purpose, optional template → **Generate Email** → note the draft
+6. **AI Email Agent** → choose **Send from** (or keep the default account) → recipient, purpose,
+   optional template → **Generate Email** → note the draft
    uses only profile facts and shows the provider (`gemini` or `mock` + fallback warning) → edit →
    **Send Email**.
 7. **Email History** → the email appears as `QUEUED` → `SENT` (background mode) or `SENT` / `FAILED`,
