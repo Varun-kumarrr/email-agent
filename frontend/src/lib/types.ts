@@ -270,6 +270,7 @@ export interface EmailHistoryItem {
   created_at: string;
   last_attempt_at: string | null;
   sent_at: string | null;
+  is_test: boolean; // sent by an account's Test action
 }
 
 export interface EmailHistoryPage {

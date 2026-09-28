@@ -12,7 +12,7 @@ from email.utils import formataddr, formatdate, make_msgid
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError, NotFoundError
-from app.models import AccountType, Company, EmailAccount
+from app.models import AccountType, Company, EmailAccount, EmailFormat, EmailHistory, EmailStatus, User
 from app.schemas.email_account import EmailAccountCreate, EmailAccountUpdate
 from app.schemas.email_config import EmailConfigCreate, EmailConfigResponse, EmailConfigUpdate, SmtpTestResponse
 from app.services import smtp_client
@@ -110,23 +110,49 @@ def build_test_message(account: EmailAccount, recipient: str) -> EmailMessage:
     return message
 
 
-def run_account_test(db: Session, account: EmailAccount, recipient: str) -> SmtpTestResponse:
-    """Send a test email through `account` and record the result on it."""
+def run_account_test(db: Session, account: EmailAccount, recipient: str, user: User | None = None) -> SmtpTestResponse:
+    """Send a test email through `account`, record the result on the account ("Last test")
+    and in the email history as a test email (is_test=True)."""
     now = datetime.now(timezone.utc)
+    message = build_test_message(account, recipient)
+    error: SmtpSendError | None = None
     try:
         if account.account_type == AccountType.SMTP:
-            smtp_client.send_message(build_smtp_credentials(account), build_test_message(account, recipient))
+            smtp_client.send_message(build_smtp_credentials(account), message)
         elif is_gmail_oauth(account):
-            send_via_gmail(db, account, build_test_message(account, recipient), [])
+            send_via_gmail(db, account, message, [])
         else:
             raise SmtpSendError("not_supported", "Testing this account type is not supported yet.")
         result = SmtpTestResponse(success=True, message=f"Test email sent to {recipient}.", tested_at=now)
-    except SmtpSendError as error:
-        error = with_provider_hint(error, account.provider)
+    except SmtpSendError as exc:
+        error = with_provider_hint(exc, account.provider)
         result = SmtpTestResponse(success=False, message=error.message, error_code=error.code, tested_at=now)
 
     account.last_tested_at = now
     account.last_test_success = result.success
+    db.add(
+        EmailHistory(
+            company_id=account.company_id,
+            sent_by_user_id=user.id if user else None,
+            email_account_id=account.id,
+            sender_email=account.email_address,
+            sender_name=account.sender_name,
+            reply_to=account.reply_to,
+            recipient=recipient.lower(),
+            cc=[],
+            bcc=[],
+            subject=message["Subject"],
+            body=message.get_content().strip(),
+            email_format=EmailFormat.PLAIN_TEXT,
+            status=EmailStatus.SENT if result.success else EmailStatus.FAILED,
+            error_code=error.code if error else None,
+            error_message=error.message if error else None,  # safe, pre-classified message only
+            attempts=1,
+            last_attempt_at=now,
+            sent_at=now if result.success else None,
+            is_test=True,
+        )
+    )
     db.commit()
     return result
 
@@ -135,5 +161,5 @@ class SmtpTestService:
     def __init__(self, db: Session):
         self.db = db
 
-    def run(self, company: Company, recipient: str) -> SmtpTestResponse:
-        return run_account_test(self.db, EmailConfigService(self.db).get(company), recipient)
+    def run(self, company: Company, recipient: str, user: User | None = None) -> SmtpTestResponse:
+        return run_account_test(self.db, EmailConfigService(self.db).get(company), recipient, user)

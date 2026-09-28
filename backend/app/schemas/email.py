@@ -79,6 +79,7 @@ class EmailHistoryItem(BaseModel):
     created_at: datetime
     last_attempt_at: datetime | None = None
     sent_at: datetime | None
+    is_test: bool = Field(default=False, description="True for an email sent by an account's Test action.")
 
 
 class EmailHistoryPage(BaseModel):

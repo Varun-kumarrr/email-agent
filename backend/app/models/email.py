@@ -144,5 +144,7 @@ class EmailHistory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     task_id: Mapped[str | None] = mapped_column(String(64))  # Celery task id (background mode)
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # True for the account "Test" action's email (not counted toward the daily sending limit).
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
     company: Mapped["Company"] = relationship(back_populates="email_history")

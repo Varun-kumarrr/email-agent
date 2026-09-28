@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Response, status
 
-from app.core.dependencies import CurrentCompany, DbSession
+from app.core.dependencies import CurrentCompany, CurrentUser, DbSession
 from app.schemas.email_account import (
     EmailAccountCreate,
     EmailAccountResponse,
@@ -82,9 +82,14 @@ def set_default_account(account_id: uuid.UUID, company: CurrentCompany, db: DbSe
     "/{account_id}/test",
     response_model=SmtpTestResponse,
     summary="Send a test email through this account",
-    description="Always 200 with `success` true/false and a safe message; no credentials or raw server output.",
+    description=(
+        "Always 200 with `success` true/false and a safe message; no credentials or raw server output. "
+        "The attempt is also recorded in the email history with `is_test: true`."
+    ),
     responses=_NOT_FOUND,
 )
-def test_account(account_id: uuid.UUID, data: EmailAccountTestRequest, company: CurrentCompany, db: DbSession):
+def test_account(
+    account_id: uuid.UUID, data: EmailAccountTestRequest, company: CurrentCompany, user: CurrentUser, db: DbSession
+):
     account = EmailAccountService(db).get(company, account_id)
-    return run_account_test(db, account, str(data.recipient))
+    return run_account_test(db, account, str(data.recipient), user)

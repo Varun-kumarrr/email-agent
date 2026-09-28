@@ -49,6 +49,7 @@ class PreferencesService:
             select(func.count(EmailHistory.id)).where(
                 EmailHistory.company_id == company.id,
                 EmailHistory.status != EmailStatus.FAILED,
+                EmailHistory.is_test.is_(False),  # account test emails don't use up the limit
                 EmailHistory.created_at >= start_of_day,
             )
         )

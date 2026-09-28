@@ -1,6 +1,6 @@
 from fastapi import APIRouter, status
 
-from app.core.dependencies import CurrentCompany, DbSession
+from app.core.dependencies import CurrentCompany, CurrentUser, DbSession
 from app.schemas.email_config import (
     EmailConfigCreate,
     EmailConfigResponse,
@@ -53,5 +53,5 @@ def update_email_config(data: EmailConfigUpdate, company: CurrentCompany, db: Db
         "stack traces are never included."
     ),
 )
-def test_email_config(data: SmtpTestRequest, company: CurrentCompany, db: DbSession):
-    return SmtpTestService(db).run(company, data.recipient)
+def test_email_config(data: SmtpTestRequest, company: CurrentCompany, user: CurrentUser, db: DbSession):
+    return SmtpTestService(db).run(company, data.recipient, user)

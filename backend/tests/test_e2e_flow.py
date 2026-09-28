@@ -93,11 +93,13 @@ def test_complete_workflow(client, monkeypatch):
     assert text.count("Business Development Manager") == 1
     assert smtp.last.host == "smtp.abctech.com"
 
-    # 11. History
+    # 11. History: the real email (newest) plus the SMTP test email from step 5, marked as a test
     history = client.get("/api/v1/emails/history", headers=headers).json()
-    assert history["total"] == 1
-    assert history["items"][0]["status"] == "SENT"
-    assert history["items"][0]["sender_email"] == "anjali@abctech.com"
+    assert history["total"] == 2
+    real, test = history["items"]
+    assert real["status"] == "SENT" and real["is_test"] is False
+    assert real["sender_email"] == "anjali@abctech.com"
+    assert test["status"] == "SENT" and test["is_test"] is True
 
     # 12. Company isolation: a second company sees none of this and sends via its own SMTP
     other = register_and_login(client, email="rahul@xyzcorp.com", name="Rahul")
@@ -112,4 +114,4 @@ def test_complete_workflow(client, monkeypatch):
     )
     assert smtp.last.host == "smtp.xyzcorp.com"
     assert "rahul@xyzcorp.com" in smtp.sent[-1]["From"]
-    assert client.get("/api/v1/emails/history", headers=headers).json()["total"] == 1
+    assert client.get("/api/v1/emails/history", headers=headers).json()["total"] == 2  # unchanged by company B

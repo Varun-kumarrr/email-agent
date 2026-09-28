@@ -123,6 +123,11 @@ export default function HistoryPage() {
                         <td>{item.subject}</td>
                         <td>
                           <StatusBadge status={item.status} />
+                          {item.is_test && (
+                            <span className="badge" style={{ marginLeft: 4 }} title="Sent by an email account's Test action">
+                              Test
+                            </span>
+                          )}
                         </td>
                         <td>{new Date(item.sent_at ?? item.created_at).toLocaleString()}</td>
                         <td>{item.sender_name ? `${item.sender_name} <${item.sender_email}>` : item.sender_email}</td>
