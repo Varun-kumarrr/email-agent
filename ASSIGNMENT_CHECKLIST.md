@@ -1,121 +1,111 @@
 # Assignment Compliance Checklist
 
-"Tested" means covered by an automated test in `backend/tests/` (run: `cd backend && pytest`,
-173 passing on PostgreSQL) and/or verified manually against the running app with PostgreSQL (see the final
-system test notes at the bottom). Paths are relative to the repository root.
+"Tested" means covered by automated tests in `backend/tests/` (run `cd backend && pytest`; the suite
+runs on a dedicated PostgreSQL test database) and, where stated, verified manually against the
+running application. Paths are relative to the repository root; backend paths are under
+`backend/app/` unless shown otherwise.
+
+Only features that exist in the code are marked as implemented. Items that were **not** verified
+against a live external service are stated explicitly.
 
 ## Core requirements
 
 | # | Requirement | Implemented | Location | Tested | Notes |
 |---|---|---|---|---|---|
-| 1 | Company name | Yes | `backend/app/models/company.py`, `schemas/company.py` | Yes — `test_company.py` | Required, 1–200 chars |
-| 2 | Company description | Yes | same | Yes — `test_company.py` | Required, ≤5000 chars |
-| 3 | Website | Yes | same, `schemas/common.py` (`HttpUrlStr`) | Yes | http(s) only; bare domains normalized |
-| 4 | Industry | Yes | same | Yes | Optional |
-| 5 | Location | Yes | same | Yes | Optional |
-| 6 | Services/products | Yes | `company_services` table | Yes | Normalized child table, ordered |
-| 7 | Target customers | Yes | `target_customers` table | Yes | Normalized child table |
-| 8 | Value propositions | Yes | `value_propositions` table | Yes | Normalized child table |
-| 9 | Contact person | Yes | `companies.contact_person` | Yes | |
-| 10 | Contact email | Yes | `companies.contact_email` | Yes | Email validated |
-| 11 | Phone | Yes | `companies.contact_phone` | Yes | Format validated |
-| 12 | Address | Yes | `companies.address` | Yes | |
-| 13 | Social links | Yes | `social_links` table | Yes | URL validated; unique per company |
-| 14 | Company CRUD | Yes | `api/v1/endpoints/company.py` (POST/GET/PUT) | Yes | Create/read/update (the required operations); delete not required |
-| 15 | Email address | Yes | `models/email.py` `EmailConfiguration.email` | Yes — `test_email_config.py` | |
-| 16 | SMTP host | Yes | same | Yes | Hostname validated (no scheme/path) |
-| 17 | SMTP port | Yes | same | Yes | 1–65535 |
-| 18 | Username | Yes | same | Yes | |
-| 19 | Password / app password | Yes | `encrypted_password` column | Yes | Write-only, Fernet-encrypted |
-| 20 | Encryption / security type | Yes | `SecurityType` enum (NONE/STARTTLS/SSL_TLS) | Yes — `test_smtp.py` (all three modes) | |
-| 21 | Sender name | Yes | `EmailConfiguration.sender_name` (+ preference override) | Yes | Reply-to also supported |
-| 22 | SMTP test | Yes | `POST /api/v1/email-config/test`, `services/smtp_client.py` | Yes — `test_smtp.py` (success + 10 failure types) | Verified live with a real SMTP server |
-| 23 | Password protection | Yes | separate request/response schemas, `core/encryption.py` | Yes — never in GET/POST/PUT, logs, history, LLM context, 422 errors, OpenAPI | `password_configured` only |
-| 24 | Email signature | Yes | `/api/v1/signature` POST/GET/PUT/DELETE | Yes — `test_signature.py` | Enabled flag |
-| 25 | Automatic signature | Yes | `append_automatically`, `services/email_sender.py`, `utils/signature.py` | Yes — `test_email_sending.py`, `test_agent_signature.py` | Appended once; duplicate sign-off removed |
-| 26 | Sender preferences | Yes | `/api/v1/preferences` | Yes — `test_preferences.py` | Sender name override |
-| 27 | Reply-to | Yes | config + preference override | Yes — `Reply-To` header asserted | |
-| 28 | Email format | Yes | `default_format` HTML/PLAIN_TEXT, per-send override | Yes — HTML + plain tests | HTML has plain-text alternative |
-| 29 | Sending limits/preferences | Yes | `daily_send_limit`, `max_recipients_per_email`, `max_send_retries`, `extra_settings` JSON | Yes — 429/400 tests, retry tests | Extensible JSON column for future prefs |
-| 30 | CC | Yes | default CC + per-send CC | Yes | |
-| 31 | BCC | Yes | default BCC + per-send BCC | Yes — BCC only in SMTP envelope | |
-| 32 | Company context for AI | Yes | `services/agent/context.py` | Yes — `test_agent.py` | |
-| 33 | Company overview in AI | Yes | context `company.description` etc. | Yes | |
-| 34 | Products in AI | Yes | context `services` | Yes | |
-| 35 | Target customers in AI | Yes | context `target_customers` | Yes | |
-| 36 | Value proposition in AI | Yes | context `value_propositions` | Yes | |
-| 37 | Contact information in AI | Yes | context `contact` | Yes | |
-| 38 | Signature in AI | Yes | context `signature`, `signature_policy` | Yes — `test_agent_signature.py` | |
-| 39 | Sender identity in AI | Yes | context `sender_name`, `sender_email`, `reply_to` | Yes | Preference overrides applied |
-| 40 | Free-tier LLM | Yes | `services/llm/gemini.py` (Google Gemini, `gemini-3.8-flash`) | Yes — simulated HTTP responses (`test_llm_providers.py`) | Live requests with a valid free-tier key reached the API but returned HTTP 503 `UNAVAILABLE` (Google high-demand); no successful live generation yet — the mock fallback handled it |
-| 41 | LLM configuration documentation | Yes | README §24, `.env.example` | n/a | |
-| 42 | Mock / fallback | Yes | `services/llm/mock.py`, fallback in `email_agent.py` | Yes — no-key, failure fallback, 503 when disabled | |
-| 43 | User-configured email sending | Yes | `services/email_sender.py` | Yes — `test_email_sending.py`, e2e | Verified live |
-| 44 | No hard-coded sender | Yes | From = company's configured SMTP address | Yes — two companies send via their own accounts | No global SMTP settings exist |
-| 45 | Python | Yes | Python 3.11 | n/a | |
-| 46 | FastAPI | Yes | `backend/app` | Yes | |
-| 47 | PostgreSQL | Yes | `DATABASE_URL`, psycopg 3 | Yes — the entire suite runs on PostgreSQL | App DB `email_agent` at head; tests use `email_agent_test` |
-| 48 | Pydantic | Yes | `backend/app/schemas`, settings | Yes | |
-| 49 | SQLAlchemy | Yes | SQLAlchemy 2.1 typed ORM | Yes | |
-| 50 | Error handling | Yes | `core/exceptions.py`, `core/error_handlers.py` | Yes — `test_error_handling.py` | Consistent JSON; 400–503 |
-| 51 | Environment variables | Yes | `core/config.py` (pydantic-settings) | Yes — `test_config.py` | |
-| 52 | Multi-user support | Yes | `users` table, JWT | Yes | |
-| 53 | Multi-company support | Yes | one company per user, all data company-scoped | Yes | |
-| 54 | Data isolation | Yes | `get_current_company`, company-filtered repositories | Yes — `test_isolation.py` + per-feature tests + e2e | No company/user IDs accepted from clients |
-| 55 | Authentication | Yes | register/login/me | Yes — `test_auth.py` | bcrypt; rate limited |
-| 56 | Authorization | Yes | dependency-based company scoping | Yes | 404 for other companies' records |
-| 57 | JWT | Yes | `core/security.py` (HS256, exp, pinned alg) | Yes — invalid/expired/forged/alg=none | |
-| 58 | Next.js | Yes | `frontend/` (Next.js 16, TypeScript) | Lint + type check + production build; manual browser testing | No automated frontend tests |
-| 59 | Input validation | Yes | Pydantic schemas + client-side checks | Yes | |
-| 60 | SQL injection protection | Yes | ORM with bound parameters only | Yes — `test_security.py` | |
-| 61 | Secure API | Yes | auth, isolation, rate limits, headers, CORS, SSRF guard | Yes — `test_hardening.py`, `test_cors.py` | |
-| 62 | No secrets in Git | Yes | `.gitignore`, `.env.example` templates | Verified — history scanned for real secret values | |
-| 63 | No secrets in frontend | Yes | only `NEXT_PUBLIC_API_URL` | Verified | |
-| 64 | No secrets in logs | Yes | no secret logging + `core/logging.py` redaction | Yes — full-flow log capture test | |
-| 65 | README | Yes | `README.md` | n/a | 35 sections |
-| 66 | Architecture documentation | Yes | README §3, `PROJECT_EXPLANATION.md` | n/a | |
-| 67 | Installation | Yes | README §19–22 | n/a | |
-| 68 | Environment variables (docs) | Yes | README §23, three `.env.example` files | n/a | |
-| 69 | Database setup | Yes | README §20–21 (Alembic) | n/a | |
-| 70 | API documentation | Yes | Swagger `/docs`, ReDoc `/redoc`, README §18 | Yes — `test_api_docs.py` | |
-| 71 | Email setup | Yes | README §25 (Gmail, Outlook, Zoho, Mailtrap, local) | n/a | |
-| 72 | Agent setup | Yes | README §24 | n/a | |
-| 73 | Security documentation | Yes | README §28–29, `PROJECT_EXPLANATION.md` §13, §19 | n/a | |
-| 74 | Assumptions | Yes | README §31 | n/a | |
-| 75 | Limitations | Yes | README §30, §32 | n/a | |
-| 76 | Migrations | Yes | `backend/alembic/versions/0001_initial_schema.py` | Yes — upgrade/downgrade + drift test; verified on PostgreSQL | |
-| 77 | .env.example | Yes | `backend/.env.example`, `frontend/.env.example`, `.env.example` (Docker) | Verified tracked, real `.env` ignored | |
-| 78 | Tests | Yes | `backend/tests/` (173 tests) | Pass on PostgreSQL (`email_agent_test`) | PostgreSQL is the only database used |
-| 79 | Swagger | Yes | `/docs` | Yes | Bearer "Authorize" supported |
-| 80 | Demo workflow | Yes | README §35, dashboard checklist | Yes — `test_e2e_flow.py`; live run passed 18/18 checks | |
+| 1 | Company name | Yes | `models/company.py`, `schemas/company.py` | Yes — `test_company.py` | Required, 1–200 chars |
+| 2 | Company description / overview | Yes | same | Yes | Required |
+| 3 | Website | Yes | same, `schemas/common.py` | Yes | http(s) only; bare domains normalized |
+| 4 | Industry | Yes | same | Yes | |
+| 5 | Company location | Yes | same | Yes | |
+| 6 | Services / products | Yes | `company_services` table | Yes | Ordered child table |
+| 7 | Target customers | Yes | `target_customers` table | Yes | |
+| 8 | Value propositions | Yes | `value_propositions` table | Yes | |
+| 9 | Contact person, email, phone, address | Yes | columns on `companies` | Yes | Email and phone validated |
+| 10 | Social media / other links | Yes | `social_links` table | Yes | URL validated; unique per company |
+| 11 | Create / view / edit / update profile | Yes | `api/v1/endpoints/company.py` (POST / GET / PUT) | Yes | Frontend page `company` |
+| 12 | Email address | Yes | `models/email.py` `EmailAccount` | Yes — `test_email_accounts.py`, `test_email_config.py` | |
+| 13 | SMTP host / port | Yes | same | Yes | Host validated; provider presets for Gmail / Outlook |
+| 14 | Username | Yes | same | Yes | Defaults to the email address |
+| 15 | Password / App Password | Yes | `encrypted_smtp_password` | Yes | Write-only, Fernet-encrypted; Gmail App Password spaces removed |
+| 16 | Encryption / security type | Yes | `SecurityType` (NONE / STARTTLS / SSL_TLS) | Yes — `test_smtp.py` (all three modes) | |
+| 17 | Sender name | Yes | `EmailAccount.sender_name` (+ preference override) | Yes | Reply-to also supported |
+| 18 | Test email configuration | Yes | `POST /email-accounts/{id}/test`, legacy `POST /email-config/test` | Yes — `test_smtp.py`, `test_gmail_oauth.py`, `test_test_email_history.py` | Records a history row with `is_test: true`. Verified live with Mailpit / a local SMTP server and with Gmail OAuth. **Real Gmail SMTP not demonstrated** (no working App Password) |
+| 19 | Password not exposed in API responses | Yes | separate request / response schemas | Yes — `test_security.py`, `test_email_accounts.py` | Only `password_configured` / `oauth_connected` |
+| 20 | Password not exposed in logs | Yes | no credential logging + `core/logging.py` redaction | Yes — full-flow log capture tests | Verified in real backend / worker logs during the Gmail OAuth run |
+| 21 | Password not in frontend source | Yes | frontend only uses `NEXT_PUBLIC_API_URL` | Verified | |
+| 22 | Password not in database queries | Yes | encrypted column; `hide_parameters=True` | Yes | Ciphertext only at rest |
+| 23 | Production credential storage explained | Yes | README §29 | n/a | Secrets manager, KMS envelope encryption, OAuth |
+| 24 | Email signature (reusable) | Yes | `/api/v1/signature` | Yes — `test_signature.py` | |
+| 25 | Signature available to the agent | Yes | `services/agent/context.py` | Yes — `test_agent_signature.py` | Policy: appended on send / in body / none |
+| 26 | Preference: sender name | Yes | `/api/v1/preferences` | Yes — `test_preferences.py` | |
+| 27 | Preference: reply-to | Yes | same | Yes — `Reply-To` header asserted | |
+| 28 | Preference: default signature / auto-append | Yes | signature settings, summary in preferences | Yes | |
+| 29 | Preference: HTML / plain text | Yes | `default_format`, per-send override | Yes | HTML has a plain-text alternative |
+| 30 | Preference: sending limits | Yes | `daily_send_limit`, `max_recipients_per_email`, `max_send_retries` | Yes — 429 / 400 / retry tests | Test emails don't count toward the daily limit |
+| 31 | Preference: CC / BCC defaults | Yes | `default_cc`, `default_bcc` | Yes | SMTP BCC only in the envelope |
+| 32 | Extensible preferences design | Yes | `extra_settings` JSON column | Yes | No migration needed for new settings |
+| 33 | Agent uses company overview | Yes | `services/agent/context.py` | Yes — `test_agent.py` | |
+| 34 | Agent uses products / services | Yes | same | Yes | |
+| 35 | Agent uses target customers | Yes | same | Yes | |
+| 36 | Agent uses value propositions | Yes | same | Yes | |
+| 37 | Agent uses contact information | Yes | same | Yes | |
+| 38 | Agent uses email signature | Yes | same | Yes | |
+| 39 | Agent uses sender identity | Yes | same (selected or default account + preference overrides) | Yes | |
+| 40 | Free-tier LLM, named and configurable | Yes | `services/llm/gemini.py` (Google Gemini) | Yes — simulated responses (`test_llm_providers.py`) | **Live generation not demonstrated**: real requests returned HTTP 503 `UNAVAILABLE` (Google high demand) |
+| 41 | Mock / fallback implementation | Yes | `services/llm/mock.py`, fallback in `services/agent/email_agent.py` | Yes — no key, provider failure, fallback disabled → 503 | Verified live when Gemini returned 503 |
+| 42 | Send using the user's configured account | Yes | `services/email_sender.py`, `services/email_delivery.py` | Yes — `test_email_sending.py`, `test_background_delivery.py`, e2e | Verified live via Gmail OAuth / Gmail API and via Mailpit |
+| 43 | No hard-coded system sender | Yes | From = selected or default company account | Yes — two companies send through their own accounts | No global SMTP settings exist |
+| 44 | Python, FastAPI | Yes | `backend/app` | Yes | |
+| 45 | PostgreSQL | Yes | psycopg 3 | Yes — the whole suite runs on PostgreSQL | |
+| 46 | Pydantic models | Yes | `schemas/`, settings | Yes | |
+| 47 | SQLAlchemy ORM | Yes | SQLAlchemy 2.1 typed models | Yes | |
+| 48 | Proper error handling | Yes | `core/exceptions.py`, `core/error_handlers.py` | Yes — `test_error_handling.py` | One JSON error shape |
+| 49 | Environment variables for secrets | Yes | `core/config.py` | Yes — `test_config.py` | `.env` git-ignored |
+| 50 | Database: profile + child tables | Yes | `models/company.py`, migrations | Yes — `test_models.py`, `test_migrations.py` | |
+| 51 | Database: email configuration, signature, preferences | Yes | `email_accounts`, `email_signatures`, `email_preferences` | Yes | |
+| 52 | Multiple users / companies | Yes | `users`, `companies` (1:1), all data company-scoped | Yes | |
+| 53 | Authentication | Yes | register / login / me | Yes — `test_auth.py` | JWT (listed as an advantage) |
+| 54 | Company data isolation | Yes | `get_current_company`, company-filtered lookups | Yes — `test_isolation.py` + per-feature tests | Selected email account ownership checked server-side |
+| 55 | Next.js frontend | Yes | `frontend/` (Next.js 16, TypeScript) | Lint, type check, production build; manual browser testing | No automated UI tests |
+| 56 | Input validation | Yes | Pydantic schemas + client-side checks | Yes | |
+| 57 | SQL injection prevention | Yes | ORM with bound parameters | Yes — `test_security.py` | |
+| 58 | Secure API design | Yes | auth, isolation, rate limits, headers, CORS, SSRF guard | Yes — `test_hardening.py`, `test_cors.py` | |
+| 59 | No credentials in Git | Yes | `.gitignore`, placeholder-only `.env.example` files | Verified by scan | |
+| 60 | README (overview, architecture, stack, install, env vars, DB setup, API docs, email setup, agent, security, assumptions, limitations) | Yes | `README.md` | n/a | |
+| 61 | `.env.example` (`DATABASE_URL`, `SECRET_KEY`, `LLM_API_KEY`, …) | Yes | `backend/.env.example`, `.env.example` (Docker), `frontend/.env.example` | Verified placeholders only | |
+| 62 | Database schema / migrations | Yes | `backend/alembic/versions/0001`–`0006` | Yes — upgrade, downgrade, drift, data migration | |
+| 63 | API documentation | Yes | Swagger `/docs`, ReDoc `/redoc`, README §22 | Yes — `test_api_docs.py` | |
 
-## Bonus requirements
+## Bonus items
 
-| Bonus | Status | Location / notes |
-|---|---|---|
-| Docker | Implemented (not run locally) | `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`. Compose YAML validated and the standalone Next.js build verified, but Docker isn't installed on the development machine, so the images were never built or run |
-| Email history | Implemented | `/api/v1/emails/history` (+ detail), history UI, tested |
-| Retry | Implemented | Retries transient SMTP errors with backoff, `max_send_retries` preference, tested |
-| Templates | Not implemented | Listed under future improvements |
-| Multiple email accounts | Not implemented | One SMTP account per company (documented assumption) |
-| OAuth (Gmail) | Implemented; automated-tested (fake Google server, 34 tests); real Google connection: pending the user's Google Cloud client | `/api/v1/oauth/gmail/authorize` + `/callback`, `services/oauth_service.py`, `services/google_oauth.py`, `services/gmail_delivery.py`, README §25a. Outlook OAuth: not implemented yet |
-| Secret encryption | Implemented | Fernet encryption of SMTP passwords at rest (`core/encryption.py`); KMS recommended for production |
-| Unit tests | Implemented | Security, encryption, sanitizer, signature helpers, providers, SMTP error classification, config |
-| Integration tests | Implemented | API tests through FastAPI + DB for every endpoint, `test_e2e_flow.py`, migration test, PostgreSQL mode |
+| Bonus | Implemented | Tested | Notes |
+|---|---|---|---|
+| JWT authentication | Yes | Yes | HS256, pinned algorithm, expiry, forged / `alg: none` tokens rejected |
+| Docker / Docker Compose | Yes | Run for real | db, redis, backend, worker, frontend (+ Mailpit profile) built and healthy |
+| Background email processing (Celery + Redis) | Yes | Yes (eager) + real runs | Real end-to-end runs: Mailpit (Docker) and Gmail API (local worker + Docker Redis) |
+| Email sending history / logs | Yes | Yes | Delivery status, attempts, account used, task id, test-email records |
+| Retry mechanism | Yes | Yes + real run | Bounded by `max_send_retries`; exponential backoff with jitter in background mode; real retry verified with a paused Mailpit |
+| Email templates | Yes | Yes | Safe `{{ variable }}` rendering, preview, agent integration |
+| Multiple email accounts per company | Yes | Yes | Default account (partial unique index), explicit selection, ownership checks |
+| OAuth-based Gmail integration | Yes | Yes (fake Google) + real run | Real Google connection, Test email and background send verified |
+| OAuth-based Outlook integration | **No** | — | Not implemented; Outlook is supported through SMTP only |
+| Secret / encryption management | Yes | Yes | Fernet for SMTP passwords, OAuth tokens, PKCE verifiers; production refuses a missing key |
+| Unit and integration tests | Yes | — | pytest on PostgreSQL; fakes for SMTP, Google and the LLM |
+| Swagger / OpenAPI | Yes | Yes | `/docs` with bearer *Authorize* |
 
-## Final system test (performed)
+## Real-world verification
 
-* Backend running (`uvicorn main:app --reload`, PostgreSQL `email_agent` at Alembic head `0001_initial_schema`); `/`, `/docs`, `/redoc`, `/openapi.json` → 200.
-* Alembic `upgrade head` → `downgrade base` → `upgrade head` verified on a scratch PostgreSQL database (`email_agent_test`).
-* Backend tests: 173 passed against PostgreSQL (`email_agent_test`); `email_agent` verified untouched by the test run.
-* Frontend: `npm run lint`, `tsc --noEmit`, `npm run build` all clean; dev server running and every page exercised in a browser.
-* Live workflow against the running API with real PostgreSQL and a local SMTP server (aiosmtpd): register → login →
-  company → SMTP config → SMTP test (real delivery) → signature → preferences → AI draft (mock provider, no key) → edit →
-  send (real delivery; From = company account; edited text; signature once; BCC hidden) → history → second company
-  isolated (profile, SMTP, signature, history, history-by-ID, sending, AI context): **18/18 checks passed**.
-* SMTP passwords confirmed stored as Fernet ciphertext in PostgreSQL. Test accounts were removed afterwards.
+| Item | Result |
+|---|---|
+| Gmail OAuth connection (real Google Cloud client, Testing mode) | Verified |
+| Gmail API delivery (Test email, and API → Redis → Celery → Gmail API) | Verified — `SENT` on attempt 1, token refreshed automatically, no secrets in logs or API responses |
+| Local SMTP delivery (Mailpit / local server) | Verified |
+| Docker Compose stack + Celery delivery + retry via Mailpit | Verified |
+| Real Gmail SMTP delivery | **Not demonstrated** (a working Gmail App Password was not available) |
+| Live Gemini generation | **Not demonstrated** (HTTP 503 `UNAVAILABLE`); mock fallback verified |
+| Gmail OAuth inside the Docker stack | Not configured / not tested |
 
 ## Mandatory requirements missing
 
-None. Two items were not verified against live external services, and are covered by mocked tests instead:
-a successful real Gemini generation (live requests returned Google's temporary HTTP 503 `UNAVAILABLE` high-demand response) and delivery through a public SMTP provider (tested against a local SMTP server).
+None. Two items were verified only with automated tests (not against the live service): real
+Gmail SMTP delivery and a successful live Gemini generation — see above.
