@@ -182,8 +182,8 @@ export default function PreferencesPage() {
         <div className="card">
           <h2>Sender</h2>
           <div className="grid grid-2">
-            {input("sender_name", "Sender name", { hint: "Leave blank to use the name from Email Configuration." })}
-            {input("reply_to", "Reply-to email", { type: "email", hint: "Leave blank to use the Email Configuration value." })}
+            {input("sender_name", "Sender name", { hint: "Leave blank to use the sending email account's sender name." })}
+            {input("reply_to", "Reply-to email", { type: "email", hint: "Leave blank to use the sending email account's reply-to." })}
           </div>
         </div>
 

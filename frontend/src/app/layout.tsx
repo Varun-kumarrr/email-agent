@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Email Agent",
-  description: "Company profile, SMTP configuration and AI-assisted email sending",
+  description: "Company profile, email accounts and AI-assisted email sending",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

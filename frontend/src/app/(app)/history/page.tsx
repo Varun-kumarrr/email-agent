@@ -65,7 +65,7 @@ export default function HistoryPage() {
 
   return (
     <>
-      <PageHeader title="Email History" description="Every email sent (or attempted) through your SMTP account." />
+      <PageHeader title="Email History" description="Every email sent (or attempted) through your email accounts, including account test emails." />
       <Alert kind="error">{error}</Alert>
 
       <div className="card">
