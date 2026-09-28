@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import EmailFormat, EmailStatus
 from app.schemas.preferences import EmailList
@@ -47,3 +47,32 @@ class SendEmailResponse(BaseModel):
     signature_appended: bool
     attempts: int
     sent_at: datetime | None
+
+
+class EmailHistoryItem(BaseModel):
+    """A send attempt. Contains no credentials, tokens or keys."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    sender_email: str
+    sender_name: str | None
+    recipient: str
+    cc: list[str]
+    bcc: list[str]
+    subject: str
+    body: str
+    email_format: EmailFormat
+    status: EmailStatus
+    error_message: str | None = Field(description="Safe failure reason (no secrets or raw server output).")
+    attempts: int
+    created_at: datetime
+    sent_at: datetime | None
+
+
+class EmailHistoryPage(BaseModel):
+    items: list[EmailHistoryItem]
+    total: int
+    page: int
+    page_size: int
+    pages: int
