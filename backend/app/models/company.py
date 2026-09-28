@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from app.models.email import EmailConfiguration, EmailHistory, EmailPreferences, EmailSignature
+    from app.models.email import EmailAccount, EmailHistory, EmailPreferences, EmailSignature
     from app.models.user import User
 
 
@@ -46,8 +46,8 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="company", cascade="all, delete-orphan", order_by="SocialLink.position"
     )
 
-    email_configuration: Mapped["EmailConfiguration | None"] = relationship(
-        back_populates="company", uselist=False, cascade="all, delete-orphan"
+    email_accounts: Mapped[list["EmailAccount"]] = relationship(
+        back_populates="company", cascade="all, delete-orphan", order_by="EmailAccount.created_at"
     )
     signature: Mapped["EmailSignature | None"] = relationship(
         back_populates="company", uselist=False, cascade="all, delete-orphan"

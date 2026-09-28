@@ -17,7 +17,7 @@ from app.schemas.agent import GenerateEmailRequest, GenerateEmailResponse
 from app.services.agent.context import SIGNATURE_APPENDED_ON_SEND, build_company_context
 from app.services.agent.output_guard import guard_output
 from app.services.agent.prompts import SYSTEM_PROMPT, build_user_prompt
-from app.services.email_config_service import EmailConfigService
+from app.services.email_account_service import EmailAccountService
 from app.services.llm import GeneratedEmail, LLMError, LLMProvider, LLMRequest, MockLLMProvider, get_llm_provider
 from app.services.preferences_service import PreferencesService
 from app.services.signature_service import SignatureService
@@ -40,7 +40,7 @@ class EmailAgentService:
         # 5. Build context.
         context = build_company_context(
             company,
-            config=EmailConfigService(self.db).find(company),
+            account=self._sender_account(company, data),
             preferences=preferences,
             signature=signature,
         )
@@ -80,6 +80,13 @@ class EmailAgentService:
             suggested_cc=list(preferences.default_cc or []),
             suggested_bcc=list(preferences.default_bcc or []),
         )
+
+    def _sender_account(self, company: Company, data: GenerateEmailRequest):
+        """The account whose identity the draft is written for: the requested one or the default."""
+        accounts = EmailAccountService(self.db)
+        if data.email_account_id is not None:
+            return accounts.get(company, data.email_account_id)  # 404 for other companies' accounts
+        return accounts.default_account(company)
 
     def _generate(self, request: LLMRequest) -> tuple[GeneratedEmail, str, bool, str | None]:
         try:

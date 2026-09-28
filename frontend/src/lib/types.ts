@@ -4,6 +4,8 @@ export type SecurityType = "NONE" | "STARTTLS" | "SSL_TLS";
 export type EmailFormat = "HTML" | "PLAIN_TEXT";
 export type EmailStatus = "SENT" | "FAILED";
 export type Tone = "professional" | "friendly" | "formal" | "persuasive" | "concise";
+export type EmailProviderName = "GMAIL" | "OUTLOOK" | "GENERIC";
+export type AccountType = "SMTP" | "OAUTH";
 
 export interface User {
   id: string;
@@ -90,6 +92,46 @@ export interface SmtpTestResult {
   tested_at: string;
 }
 
+export interface EmailAccount {
+  id: string;
+  account_name: string;
+  provider: EmailProviderName;
+  account_type: AccountType;
+  email_address: string;
+  sender_name: string;
+  reply_to: string | null;
+  smtp_host: string | null;
+  smtp_port: number | null;
+  smtp_username: string | null;
+  security_type: SecurityType | null;
+  password_configured: boolean; // passwords and OAuth tokens are never returned
+  oauth_connected: boolean;
+  oauth_token_expires_at: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  last_tested_at: string | null;
+  last_test_success: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailAccountCreate {
+  account_name: string;
+  provider: EmailProviderName;
+  email_address: string;
+  sender_name: string;
+  reply_to: string | null;
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_username?: string | null;
+  password: string; // write-only
+  security_type?: SecurityType | null;
+  is_active?: boolean;
+  is_default?: boolean;
+}
+
+export type EmailAccountUpdate = Partial<Omit<EmailAccountCreate, "provider" | "is_default">>;
+
 export interface SignatureInput {
   signature_text: string;
   enabled: boolean;
@@ -127,6 +169,7 @@ export interface GenerateEmailInput {
   purpose: string;
   tone: Tone;
   additional_instructions: string | null;
+  email_account_id?: string | null;
 }
 
 export interface GeneratedEmail {
@@ -151,6 +194,7 @@ export interface SendEmailInput {
   cc: string[];
   bcc: string[];
   append_signature: boolean | null;
+  email_account_id?: string | null;
 }
 
 export interface SendEmailResult {
@@ -171,6 +215,7 @@ export interface SendEmailResult {
 
 export interface EmailHistoryItem {
   id: string;
+  email_account_id: string | null;
   sender_email: string;
   sender_name: string | null;
   recipient: string;

@@ -6,11 +6,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Alert, LoadingScreen, PageHeader } from "@/components/ui";
 import { api, ApiError, isNotFound } from "@/lib/api";
-import type { Company, EmailConfig, EmailHistoryPage, Preferences, Signature } from "@/lib/types";
+import type { Company, EmailAccount, EmailHistoryPage, Preferences, Signature } from "@/lib/types";
 
 interface Status {
   company: Company | null;
-  config: EmailConfig | null;
+  account: EmailAccount | null; // the default sending account
   signature: Signature | null;
   preferences: Preferences | null;
   history: EmailHistoryPage | null;
@@ -37,17 +37,18 @@ export default function DashboardPage() {
       try {
         const company = await optional(api.getCompany());
         if (!company) {
-          setStatus({ company: null, config: null, signature: null, preferences: null, history: null, sentTotal: 0 });
+          setStatus({ company: null, account: null, signature: null, preferences: null, history: null, sentTotal: 0 });
           return;
         }
-        const [config, signature, preferences, history, sent] = await Promise.all([
-          optional(api.getEmailConfig()),
+        const [accounts, signature, preferences, history, sent] = await Promise.all([
+          api.listEmailAccounts(),
           optional(api.getSignature()),
           api.getPreferences(),
           api.history(1, 5),
           api.history(1, 1, "SENT"),
         ]);
-        setStatus({ company, config, signature, preferences, history, sentTotal: sent.total });
+        const account = accounts.find((a) => a.is_default) ?? accounts[0] ?? null;
+        setStatus({ company, account, signature, preferences, history, sentTotal: sent.total });
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Could not load your dashboard.");
       }
@@ -57,15 +58,15 @@ export default function DashboardPage() {
   if (error) return <Alert kind="error">{error}</Alert>;
   if (!status) return <LoadingScreen />;
 
-  const { company, config, signature, preferences, history, sentTotal } = status;
+  const { company, account, signature, preferences, history, sentTotal } = status;
   const steps = [
     { done: !!company, label: "Create your company profile", href: "/company", detail: company?.name },
-    { done: !!config, label: "Configure your SMTP email account", href: "/email-config", detail: config?.email },
+    { done: !!account, label: "Add an email account", href: "/email-accounts", detail: account?.email_address },
     {
-      done: !!config?.last_test_success,
+      done: !!account?.last_test_success,
       label: "Send a successful test email",
-      href: "/email-config",
-      detail: config?.last_test_success === false ? "Last test failed" : undefined,
+      href: "/email-accounts",
+      detail: account?.last_test_success === false ? "Last test failed" : undefined,
     },
     {
       done: !!signature,
@@ -99,7 +100,7 @@ export default function DashboardPage() {
         </div>
         <div className="card">
           <div className="muted">Sending account</div>
-          <div style={{ fontWeight: 600, wordBreak: "break-all" }}>{config?.email ?? "Not configured"}</div>
+          <div style={{ fontWeight: 600, wordBreak: "break-all" }}>{account?.email_address ?? "Not configured"}</div>
         </div>
       </div>
 

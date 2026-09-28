@@ -5,7 +5,7 @@ Everything comes from the authenticated company's own records.
 
 from typing import Any
 
-from app.models import Company, EmailConfiguration, EmailPreferences, EmailSignature
+from app.models import Company, EmailAccount, EmailPreferences, EmailSignature
 from app.utils.signature import signature_has_closing
 
 # How the saved signature relates to the generated body:
@@ -21,15 +21,15 @@ def signature_policy(signature: EmailSignature | None) -> str:
 
 
 def resolve_sender_name(
-    company: Company, config: EmailConfiguration | None, preferences: EmailPreferences
+    company: Company, account: EmailAccount | None, preferences: EmailPreferences
 ) -> str | None:
-    return preferences.sender_name or (config.sender_name if config else None) or company.contact_person
+    return preferences.sender_name or (account.sender_name if account else None) or company.contact_person
 
 
 def build_company_context(
     company: Company,
     *,
-    config: EmailConfiguration | None,
+    account: EmailAccount | None,
     preferences: EmailPreferences,
     signature: EmailSignature | None,
 ) -> dict[str, Any]:
@@ -54,9 +54,9 @@ def build_company_context(
             },
             "social_links": [{"platform": l.platform, "url": l.url} for l in company.social_links],
         },
-        "sender_name": resolve_sender_name(company, config, preferences),
-        "sender_email": config.email if config else company.contact_email,
-        "reply_to": preferences.reply_to or (config.reply_to if config else None),
+        "sender_name": resolve_sender_name(company, account, preferences),
+        "sender_email": account.email_address if account else company.contact_email,
+        "reply_to": preferences.reply_to or (account.reply_to if account else None),
         "signature": signature.signature_text if policy != SIGNATURE_NONE else None,
         "signature_policy": policy,
         "signature_includes_closing": bool(

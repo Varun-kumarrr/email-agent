@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.db.base import Base
-from app.models import Company, CompanyService, EmailConfiguration, SecurityType, User
+from app.models import AccountType, Company, CompanyService, EmailAccount, EmailProvider, SecurityType, User
 
 
 @pytest.fixture()
@@ -24,7 +24,7 @@ def test_expected_tables_exist():
         "target_customers",
         "value_propositions",
         "social_links",
-        "email_configurations",
+        "email_accounts",
         "email_signatures",
         "email_preferences",
         "email_history",
@@ -63,23 +63,53 @@ def test_duplicate_user_email_rejected(session):
         session.commit()
 
 
-def test_one_email_configuration_per_company(session):
+def _account(company_id, email="s@example.com", is_default=False):
+    return EmailAccount(
+        company_id=company_id,
+        account_name="Sales",
+        provider=EmailProvider.GENERIC,
+        account_type=AccountType.SMTP,
+        email_address=email,
+        sender_name="S",
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_username="s",
+        encrypted_smtp_password="cipher",
+        security_type=SecurityType.STARTTLS,
+        is_default=is_default,
+    )
+
+
+def _company(session):
     user = _user()
     user.company = Company(name="A", description="d")
     session.add(user)
     session.commit()
-    for _ in range(2):
-        session.add(
-            EmailConfiguration(
-                company_id=user.company.id,
-                email="s@example.com",
-                smtp_host="smtp.example.com",
-                smtp_port=587,
-                username="s",
-                encrypted_password="cipher",
-                security_type=SecurityType.STARTTLS,
-                sender_name="S",
-            )
-        )
+    return user.company
+
+
+def test_company_can_have_multiple_email_accounts(session):
+    company = _company(session)
+    session.add_all([_account(company.id, "a@example.com", True), _account(company.id, "b@example.com")])
+    session.commit()
+    assert session.query(EmailAccount).count() == 2
+
+
+def test_only_one_default_email_account_per_company(session):
+    company = _company(session)
+    session.add_all([_account(company.id, "a@example.com", True), _account(company.id, "b@example.com", True)])
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_duplicate_account_address_per_type_rejected(session):
+    company = _company(session)
+    session.add_all([_account(company.id, "a@example.com"), _account(company.id, "a@example.com")])
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_account_repr_has_no_credentials(session):
+    company = _company(session)
+    account = _account(company.id)
+    assert "cipher" not in repr(account)

@@ -82,7 +82,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin for origin in settings.ALLOWED_ORIGINS if origin != "*"],
     allow_credentials=False,  # auth uses the Authorization header, not cookies
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
     max_age=600,
 )

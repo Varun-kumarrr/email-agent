@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/company", label: "Company Profile" },
-  { href: "/email-config", label: "Email Configuration" },
+  { href: "/email-accounts", label: "Email Accounts" },
   { href: "/signature", label: "Signature" },
   { href: "/preferences", label: "Preferences" },
   { href: "/agent", label: "AI Email Agent" },

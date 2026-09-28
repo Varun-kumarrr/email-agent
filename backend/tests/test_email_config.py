@@ -1,5 +1,5 @@
 from app.core.encryption import decrypt_secret, encrypt_secret
-from app.models import EmailConfiguration
+from app.models import EmailAccount
 from tests.test_company import create_company
 
 CONFIG = "/api/v1/email-config"
@@ -45,9 +45,9 @@ def test_create_config_never_returns_password(client, auth_headers, db_session):
     assert "password" not in body
     assert SMTP_PASSWORD not in response.text
 
-    stored = db_session.query(EmailConfiguration).one()
-    assert stored.encrypted_password != SMTP_PASSWORD
-    assert decrypt_secret(stored.encrypted_password) == SMTP_PASSWORD
+    stored = db_session.query(EmailAccount).one()
+    assert stored.encrypted_smtp_password != SMTP_PASSWORD
+    assert decrypt_secret(stored.encrypted_smtp_password) == SMTP_PASSWORD
 
 
 def test_get_config_never_returns_password(client, auth_headers):
@@ -69,9 +69,9 @@ def test_update_without_password_preserves_it(client, auth_headers, db_session):
     assert response.status_code == 200
     assert response.json()["sender_name"] == "ABC Sales"
     assert SMTP_PASSWORD not in response.text
-    stored = db_session.query(EmailConfiguration).one()
+    stored = db_session.query(EmailAccount).one()
     db_session.refresh(stored)
-    assert decrypt_secret(stored.encrypted_password) == SMTP_PASSWORD
+    assert decrypt_secret(stored.encrypted_smtp_password) == SMTP_PASSWORD
 
 
 def test_update_with_password_replaces_it(client, auth_headers, db_session):
@@ -80,9 +80,9 @@ def test_update_with_password_replaces_it(client, auth_headers, db_session):
     response = client.put(CONFIG, json={**SMTP_SETTINGS, "password": "new-app-password"}, headers=auth_headers)
     assert response.status_code == 200
     assert "new-app-password" not in response.text
-    stored = db_session.query(EmailConfiguration).one()
+    stored = db_session.query(EmailAccount).one()
     db_session.refresh(stored)
-    assert decrypt_secret(stored.encrypted_password) == "new-app-password"
+    assert decrypt_secret(stored.encrypted_smtp_password) == "new-app-password"
 
 
 def test_duplicate_create_is_conflict(client, auth_headers):

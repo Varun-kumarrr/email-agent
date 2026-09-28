@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Company, EmailFormat, EmailHistory, EmailPreferences, EmailStatus
 from app.schemas.preferences import PreferencesResponse, PreferencesUpdate, SignatureSummary
-from app.services.email_config_service import EmailConfigService
+from app.services.email_account_service import EmailAccountService
 from app.services.signature_service import SignatureService
 
 DEFAULTS = PreferencesUpdate()
@@ -48,7 +48,7 @@ class PreferencesService:
         return count or 0
 
     def to_response(self, company: Company, prefs: EmailPreferences) -> PreferencesResponse:
-        config = EmailConfigService(self.db).find(company)
+        account = EmailAccountService(self.db).default_account(company)  # default sender account
         signature = SignatureService(self.db).find(company)
         sent_today = self.sent_today(company)
         return PreferencesResponse(
@@ -61,8 +61,8 @@ class PreferencesService:
             default_cc=prefs.default_cc or [],
             default_bcc=prefs.default_bcc or [],
             extra_settings=prefs.extra_settings or {},
-            effective_sender_name=prefs.sender_name or (config.sender_name if config else None),
-            effective_reply_to=prefs.reply_to or (config.reply_to if config else None),
+            effective_sender_name=prefs.sender_name or (account.sender_name if account else None),
+            effective_reply_to=prefs.reply_to or (account.reply_to if account else None),
             signature=SignatureSummary(
                 configured=signature is not None,
                 enabled=bool(signature and signature.enabled),

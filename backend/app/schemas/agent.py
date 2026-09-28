@@ -1,3 +1,4 @@
+import uuid
 from enum import Enum
 
 from pydantic import BaseModel, EmailStr, Field
@@ -22,6 +23,9 @@ class GenerateEmailRequest(BaseModel):
     )
     tone: Tone = Tone.PROFESSIONAL
     additional_instructions: Text(2000) | None = Field(default=None, examples=["Keep it under 150 words."])
+    email_account_id: uuid.UUID | None = Field(
+        default=None, description="Write as this account's sender identity (defaults to the company's default account)."
+    )
 
 
 class GenerateEmailResponse(BaseModel):

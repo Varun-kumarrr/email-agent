@@ -1,118 +1,124 @@
+"""Legacy single-configuration API (/api/v1/email-config), kept for backward compatibility.
+
+It now works on the company's *primary SMTP account* (see EmailAccountService.primary_smtp):
+POST creates the first SMTP account (409 if one exists), GET/PUT read and update it, and
+/test sends a test email through it. New clients should use /api/v1/email-accounts.
+"""
+
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.encryption import DecryptionError, decrypt_secret, encrypt_secret
 from app.core.exceptions import ConflictError, NotFoundError
-from app.models import Company, EmailConfiguration
+from app.models import AccountType, Company, EmailAccount
+from app.schemas.email_account import EmailAccountCreate, EmailAccountUpdate
 from app.schemas.email_config import EmailConfigCreate, EmailConfigResponse, EmailConfigUpdate, SmtpTestResponse
 from app.services import smtp_client
-from app.services.smtp_client import SmtpCredentials, SmtpSendError
+from app.services.email_account_service import EmailAccountService, build_smtp_credentials, infer_provider
+from app.services.smtp_client import SmtpSendError
 
-_FIELDS = ("email", "smtp_host", "smtp_port", "username", "security_type", "sender_name", "reply_to")
+# Kept so existing imports keep working.
+build_credentials = build_smtp_credentials
 
 
-def to_response(config: EmailConfiguration) -> EmailConfigResponse:
+def to_response(account: EmailAccount) -> EmailConfigResponse:
     return EmailConfigResponse(
-        email=config.email,
-        smtp_host=config.smtp_host,
-        smtp_port=config.smtp_port,
-        username=config.username,
-        security_type=config.security_type,
-        sender_name=config.sender_name,
-        reply_to=config.reply_to,
-        password_configured=bool(config.encrypted_password),
-        last_tested_at=config.last_tested_at,
-        last_test_success=config.last_test_success,
-        updated_at=config.updated_at,
+        email=account.email_address,
+        smtp_host=account.smtp_host,
+        smtp_port=account.smtp_port,
+        username=account.smtp_username,
+        security_type=account.security_type,
+        sender_name=account.sender_name,
+        reply_to=account.reply_to,
+        password_configured=bool(account.encrypted_smtp_password),
+        last_tested_at=account.last_tested_at,
+        last_test_success=account.last_test_success,
+        updated_at=account.updated_at,
     )
 
 
 class EmailConfigService:
     def __init__(self, db: Session):
         self.db = db
+        self.accounts = EmailAccountService(db)
 
-    def find(self, company: Company) -> EmailConfiguration | None:
-        return self.db.scalar(
-            select(EmailConfiguration).where(EmailConfiguration.company_id == company.id)
-        )
+    def find(self, company: Company) -> EmailAccount | None:
+        return self.accounts.primary_smtp(company)
 
-    def get(self, company: Company) -> EmailConfiguration:
-        config = self.find(company)
-        if config is None:
+    def get(self, company: Company) -> EmailAccount:
+        account = self.find(company)
+        if account is None:
             raise NotFoundError("Email configuration not found. Configure your SMTP account first.")
-        return config
+        return account
 
-    def create(self, company: Company, data: EmailConfigCreate) -> EmailConfiguration:
+    def create(self, company: Company, data: EmailConfigCreate) -> EmailAccount:
         if self.find(company) is not None:
             raise ConflictError("Email configuration already exists. Use PUT to update it.")
-        config = EmailConfiguration(
-            company_id=company.id,
-            encrypted_password=encrypt_secret(data.password.get_secret_value()),
-            **{field: getattr(data, field) for field in _FIELDS},
+        return self.accounts.create_smtp(
+            company,
+            EmailAccountCreate(
+                account_name="Primary SMTP",
+                provider=infer_provider(data.smtp_host),
+                email_address=data.email,
+                sender_name=data.sender_name,
+                reply_to=data.reply_to,
+                smtp_host=data.smtp_host,
+                smtp_port=data.smtp_port,
+                smtp_username=data.username,
+                password=data.password,
+                security_type=data.security_type,
+            ),
         )
-        self.db.add(config)
-        try:
-            self.db.commit()
-        except IntegrityError:
-            self.db.rollback()
-            raise ConflictError("Email configuration already exists.")
-        return config
 
-    def update(self, company: Company, data: EmailConfigUpdate) -> EmailConfiguration:
-        config = self.get(company)
-        connection_changed = any(
-            getattr(config, f) != getattr(data, f)
-            for f in ("smtp_host", "smtp_port", "username", "security_type")
-        )
-        for field in _FIELDS:
-            setattr(config, field, getattr(data, field))
+    def update(self, company: Company, data: EmailConfigUpdate) -> EmailAccount:
+        account = self.get(company)
+        changes = {
+            "email_address": data.email,
+            "smtp_host": data.smtp_host,
+            "smtp_port": data.smtp_port,
+            "smtp_username": data.username,
+            "security_type": data.security_type,
+            "sender_name": data.sender_name,
+            "reply_to": data.reply_to,  # PUT semantics: null clears it
+        }
         if data.password is not None:
-            config.encrypted_password = encrypt_secret(data.password.get_secret_value())
-        if connection_changed or data.password is not None:
-            # A previous successful test no longer proves the new settings work.
-            config.last_tested_at = None
-            config.last_test_success = None
-        self.db.commit()
-        return config
+            changes["password"] = data.password
+        return self.accounts.update(company, account.id, EmailAccountUpdate(**changes))
 
 
-def build_credentials(config: EmailConfiguration) -> SmtpCredentials:
-    """Decrypt the company's stored password only at the moment it is needed."""
-    try:
-        password = decrypt_secret(config.encrypted_password)
-    except DecryptionError:
-        raise SmtpSendError(
-            "credential_unreadable",
-            "The stored SMTP password could not be read. Please re-enter it in Email Configuration.",
-        )
-    return SmtpCredentials(
-        host=config.smtp_host,
-        port=config.smtp_port,
-        username=config.username,
-        password=password,
-        security_type=config.security_type,
-    )
-
-
-def build_test_message(config: EmailConfiguration, recipient: str) -> EmailMessage:
+def build_test_message(account: EmailAccount, recipient: str) -> EmailMessage:
     message = EmailMessage()
-    message["Subject"] = "Email Agent: SMTP configuration test"
-    message["From"] = formataddr((config.sender_name, config.email))
+    message["Subject"] = "Email Agent: email account test"
+    message["From"] = formataddr((account.sender_name, account.email_address))
     message["To"] = recipient
-    if config.reply_to:
-        message["Reply-To"] = config.reply_to
+    if account.reply_to:
+        message["Reply-To"] = account.reply_to
     message["Date"] = formatdate(localtime=False)
-    message["Message-ID"] = make_msgid(domain=config.email.split("@")[-1])
+    message["Message-ID"] = make_msgid(domain=account.email_address.split("@")[-1])
     message.set_content(
         "This is a test email from Email Agent.\n\n"
-        f"Your SMTP configuration for {config.email} is working correctly."
+        f"The email account {account.email_address} is working correctly."
     )
     return message
+
+
+def run_account_test(db: Session, account: EmailAccount, recipient: str) -> SmtpTestResponse:
+    """Send a test email through `account` and record the result on it."""
+    now = datetime.now(timezone.utc)
+    try:
+        if account.account_type != AccountType.SMTP:
+            raise SmtpSendError("not_supported", "Testing this account type is not supported yet.")
+        smtp_client.send_message(build_smtp_credentials(account), build_test_message(account, recipient))
+        result = SmtpTestResponse(success=True, message=f"Test email sent to {recipient}.", tested_at=now)
+    except SmtpSendError as error:
+        result = SmtpTestResponse(success=False, message=error.message, error_code=error.code, tested_at=now)
+
+    account.last_tested_at = now
+    account.last_test_success = result.success
+    db.commit()
+    return result
 
 
 class SmtpTestService:
@@ -120,17 +126,4 @@ class SmtpTestService:
         self.db = db
 
     def run(self, company: Company, recipient: str) -> SmtpTestResponse:
-        config = EmailConfigService(self.db).get(company)
-        now = datetime.now(timezone.utc)
-        try:
-            smtp_client.send_message(build_credentials(config), build_test_message(config, recipient))
-            result = SmtpTestResponse(
-                success=True, message=f"Test email sent to {recipient}.", tested_at=now
-            )
-        except SmtpSendError as error:
-            result = SmtpTestResponse(success=False, message=error.message, error_code=error.code, tested_at=now)
-
-        config.last_tested_at = now
-        config.last_test_success = result.success
-        self.db.commit()
-        return result
+        return run_account_test(self.db, EmailConfigService(self.db).get(company), recipient)

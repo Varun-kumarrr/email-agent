@@ -1,11 +1,11 @@
-"""Sends email through the authenticated company's own SMTP account.
+"""Sends email through one of the authenticated company's own email accounts.
 
-Flow: user -> company -> company's SMTP configuration -> preferences ->
-sender / reply-to -> signature -> send (with retries on transient errors) ->
-history record -> safe result.
+Flow: user -> company -> selected email account (or the company default) ->
+preferences -> sender / reply-to -> signature -> send (with retries on transient
+errors) -> history record -> safe result.
 
-There is no system-wide sender: the From address is always the company's
-configured SMTP email, and credentials come only from that configuration.
+There is no system-wide sender: the From address is always the selected account's
+address, and credentials come only from that account.
 """
 
 import logging
@@ -15,12 +15,12 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.exceptions import BadRequestError, EmailDeliveryError, NotFoundError, RateLimitError
+from app.core.exceptions import BadRequestError, EmailDeliveryError, RateLimitError
 from app.models import Company, EmailHistory, EmailStatus, User
 from app.schemas.email import SendEmailRequest, SendEmailResponse
 from app.services import smtp_client
 from app.services.email_composer import build_message
-from app.services.email_config_service import EmailConfigService, build_credentials
+from app.services.email_account_service import EmailAccountService, build_smtp_credentials
 from app.services.preferences_service import PreferencesService
 from app.services.signature_service import SignatureService
 from app.services.smtp_client import SmtpSendError
@@ -34,9 +34,7 @@ class EmailSenderService:
         self.db = db
 
     def send(self, company: Company, user: User, data: SendEmailRequest) -> SendEmailResponse:
-        config = EmailConfigService(self.db).find(company)
-        if config is None:
-            raise NotFoundError("Configure your SMTP email account before sending emails.")
+        account = EmailAccountService(self.db).resolve_for_sending(company, data.email_account_id)
 
         prefs_service = PreferencesService(self.db)
         prefs = prefs_service.get(company)
@@ -56,8 +54,8 @@ class EmailSenderService:
         if prefs_service.sent_today(company) >= prefs.daily_send_limit:
             raise RateLimitError(f"Daily sending limit of {prefs.daily_send_limit} emails reached.")
 
-        sender_name = prefs.sender_name or config.sender_name
-        reply_to = prefs.reply_to or config.reply_to
+        sender_name = prefs.sender_name or account.sender_name
+        reply_to = prefs.reply_to or account.reply_to
 
         signature = SignatureService(self.db).active_signature(company)
         wants_signature = (
@@ -73,7 +71,7 @@ class EmailSenderService:
             body = drop_trailing_closing(body)  # avoid "Best regards," twice
 
         message = build_message(
-            sender_email=config.email,
+            sender_email=account.email_address,
             sender_name=sender_name,
             recipient=recipient,
             subject=data.subject,
@@ -85,13 +83,14 @@ class EmailSenderService:
         )
         final_body = append_signature(data.body, signature_text) if signature_text else data.body
 
-        attempts, error = self._deliver(config, message, envelope, max_retries=prefs.max_send_retries)
+        attempts, error = self._deliver(account, message, envelope, max_retries=prefs.max_send_retries)
 
         now = datetime.now(timezone.utc)
         record = EmailHistory(
             company_id=company.id,
             sent_by_user_id=user.id,
-            sender_email=config.email,
+            email_account_id=account.id,
+            sender_email=account.email_address,
             sender_name=sender_name,
             recipient=recipient,
             cc=cc,
@@ -116,7 +115,8 @@ class EmailSenderService:
             id=record.id,
             status=record.status,
             message=f"Email sent to {recipient}.",
-            sender_email=config.email,
+            email_account_id=account.id,
+            sender_email=account.email_address,
             sender_name=sender_name,
             recipient=recipient,
             cc=cc,
@@ -128,13 +128,13 @@ class EmailSenderService:
             sent_at=now,
         )
 
-    def _deliver(self, config, message, envelope, *, max_retries: int) -> tuple[int, SmtpSendError | None]:
+    def _deliver(self, account, message, envelope, *, max_retries: int) -> tuple[int, SmtpSendError | None]:
         """Send with retries on transient failures only. Returns (attempts, error or None)."""
         attempts = 0
         while True:
             attempts += 1
             try:
-                smtp_client.send_message(build_credentials(config), message, envelope)
+                smtp_client.send_message(build_smtp_credentials(account), message, envelope)
                 return attempts, None
             except SmtpSendError as error:
                 if not error.transient or attempts > max_retries:

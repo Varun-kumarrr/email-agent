@@ -31,12 +31,18 @@ class SendEmailRequest(BaseModel):
         default=None,
         description="Omit to follow the signature's 'append automatically' setting; true/false to override.",
     )
+    email_account_id: uuid.UUID | None = Field(
+        default=None,
+        description="Email account to send from (must belong to your company and be active). "
+        "Omit to use the company's default account.",
+    )
 
 
 class SendEmailResponse(BaseModel):
     id: uuid.UUID = Field(description="Email history record ID.")
     status: EmailStatus
     message: str
+    email_account_id: uuid.UUID = Field(description="The account the email was sent from.")
     sender_email: EmailStr
     sender_name: str | None
     recipient: EmailStr
@@ -55,6 +61,7 @@ class EmailHistoryItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    email_account_id: uuid.UUID | None = Field(description="Null if the account was deleted later.")
     sender_email: str
     sender_name: str | None
     recipient: str

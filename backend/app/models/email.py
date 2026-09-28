@@ -2,43 +2,74 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import EmailFormat, EmailStatus, SecurityType
+from app.models.enums import AccountType, EmailFormat, EmailProvider, EmailStatus, SecurityType
 
 if TYPE_CHECKING:
     from app.models.company import Company
 
 
 def _enum(enum_cls):
-    # Stored as VARCHAR + CHECK constraint: portable and easy to extend in migrations.
+    # Stored as VARCHAR (no database CHECK constraint): values are validated by SQLAlchemy
+    # (validate_strings) and by the Pydantic schemas, and new values need no migration.
     return Enum(enum_cls, native_enum=False, length=20, validate_strings=True)
 
 
-class EmailConfiguration(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """The company's own SMTP account. Every email the company sends goes through it."""
+class EmailAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One mailbox the company can send from. A company can have many; exactly one may be default.
 
-    __tablename__ = "email_configurations"
+    SMTP accounts store host/port/username and a Fernet-encrypted password.
+    OAuth accounts (Gmail / Outlook) store Fernet-encrypted access and refresh tokens.
+    No credential is ever stored in plaintext or returned by the API.
+    """
+
+    __tablename__ = "email_accounts"
+    __table_args__ = (
+        UniqueConstraint("company_id", "account_type", "email_address", name="uq_email_accounts_company_type_email"),
+        # At most one default account per company (partial unique index, PostgreSQL).
+        Index(
+            "uq_email_accounts_one_default_per_company",
+            "company_id",
+            unique=True,
+            postgresql_where=text("is_default"),
+        ),
+    )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("companies.id", ondelete="CASCADE"), unique=True, nullable=False
+        Uuid, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
-    smtp_host: Mapped[str] = mapped_column(String(255), nullable=False)
-    smtp_port: Mapped[int] = mapped_column(Integer, nullable=False)
-    username: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Fernet-encrypted ciphertext. The plaintext password is never stored or returned.
-    encrypted_password: Mapped[str] = mapped_column(Text, nullable=False)
-    security_type: Mapped[SecurityType] = mapped_column(_enum(SecurityType), nullable=False)
+    account_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[EmailProvider] = mapped_column(_enum(EmailProvider), nullable=False)
+    account_type: Mapped[AccountType] = mapped_column(_enum(AccountType), nullable=False)
+    email_address: Mapped[str] = mapped_column(String(255), nullable=False)
     sender_name: Mapped[str] = mapped_column(String(120), nullable=False)
     reply_to: Mapped[str | None] = mapped_column(String(255))
 
+    # SMTP accounts
+    smtp_host: Mapped[str | None] = mapped_column(String(255))
+    smtp_port: Mapped[int | None] = mapped_column(Integer)
+    smtp_username: Mapped[str | None] = mapped_column(String(255))
+    encrypted_smtp_password: Mapped[str | None] = mapped_column(Text)  # Fernet ciphertext
+    security_type: Mapped[SecurityType | None] = mapped_column(_enum(SecurityType))
+
+    # OAuth accounts (the OAuth provider is `provider`: GMAIL or OUTLOOK)
+    encrypted_oauth_access_token: Mapped[str | None] = mapped_column(Text)  # Fernet ciphertext
+    encrypted_oauth_refresh_token: Mapped[str | None] = mapped_column(Text)  # Fernet ciphertext
+    oauth_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    oauth_scopes: Mapped[str | None] = mapped_column(String(500))
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_test_success: Mapped[bool | None] = mapped_column(Boolean)
 
-    company: Mapped["Company"] = relationship(back_populates="email_configuration")
+    company: Mapped["Company"] = relationship(back_populates="email_accounts")
+
+    def __repr__(self) -> str:  # never include credentials
+        return f"EmailAccount(id={self.id}, type={self.account_type}, provider={self.provider}, email={self.email_address!r})"
 
 
 class EmailSignature(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -91,6 +122,11 @@ class EmailHistory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     sent_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    # The account used for sending. SET NULL keeps history when an account is deleted
+    # (sender_email/sender_name below still record who sent it).
+    email_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("email_accounts.id", ondelete="SET NULL"), index=True
     )
     sender_email: Mapped[str] = mapped_column(String(255), nullable=False)
     sender_name: Mapped[str | None] = mapped_column(String(120))

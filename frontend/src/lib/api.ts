@@ -8,6 +8,9 @@ import { clearSession, getToken } from "./session";
 import type {
   Company,
   CompanyInput,
+  EmailAccount,
+  EmailAccountCreate,
+  EmailAccountUpdate,
   EmailConfig,
   EmailConfigInput,
   EmailHistoryPage,
@@ -118,7 +121,23 @@ export const api = {
   createCompany: (data: CompanyInput) => request<Company>("/api/v1/company", { method: "POST", body: data }),
   updateCompany: (data: CompanyInput) => request<Company>("/api/v1/company", { method: "PUT", body: data }),
 
-  // Email configuration
+  // Email accounts (multiple per company)
+  listEmailAccounts: () => request<EmailAccount[]>("/api/v1/email-accounts"),
+  createEmailAccount: (data: EmailAccountCreate) =>
+    request<EmailAccount>("/api/v1/email-accounts", { method: "POST", body: data }),
+  updateEmailAccount: (id: string, data: EmailAccountUpdate) =>
+    request<EmailAccount>(`/api/v1/email-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: data }),
+  deleteEmailAccount: (id: string) =>
+    request<void>(`/api/v1/email-accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setDefaultEmailAccount: (id: string) =>
+    request<EmailAccount>(`/api/v1/email-accounts/${encodeURIComponent(id)}/set-default`, { method: "POST" }),
+  testEmailAccount: (id: string, recipient: string) =>
+    request<SmtpTestResult>(`/api/v1/email-accounts/${encodeURIComponent(id)}/test`, {
+      method: "POST",
+      body: { recipient },
+    }),
+
+  // Legacy single email configuration (maps to the primary SMTP account)
   getEmailConfig: () => request<EmailConfig>("/api/v1/email-config"),
   createEmailConfig: (data: EmailConfigInput) =>
     request<EmailConfig>("/api/v1/email-config", { method: "POST", body: data }),

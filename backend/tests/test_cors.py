@@ -32,3 +32,18 @@ def test_wildcard_origin_is_filtered_out():
 
     cors = next(m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware")
     assert "*" not in cors.kwargs["allow_origins"]
+
+
+def test_patch_and_delete_are_allowed_for_the_frontend_origin(client):
+    origin = settings.ALLOWED_ORIGINS[0]
+    for method in ("PATCH", "DELETE", "PUT"):
+        response = client.options(
+            "/api/v1/email-accounts/00000000-0000-0000-0000-000000000000",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        assert response.status_code == 200, method
+        assert method in response.headers["access-control-allow-methods"]

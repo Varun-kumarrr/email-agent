@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
@@ -197,8 +198,12 @@ export default function EmailConfigPage() {
     <>
       <PageHeader
         title="Email Configuration"
-        description="Your company's own SMTP account. All emails are sent from this account — there is no shared system sender."
+        description="Your company's primary SMTP account. All emails are sent from your own accounts — there is no shared system sender."
       />
+      <Alert kind="info">
+        This page edits your primary SMTP account. To add more accounts (Gmail, Outlook, other SMTP servers) or
+        choose the default, use <Link href="/email-accounts">Email Accounts</Link>.
+      </Alert>
       <Alert kind="success">{success}</Alert>
       <Alert kind="error">{error}</Alert>
 
