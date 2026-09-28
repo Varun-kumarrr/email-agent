@@ -113,7 +113,7 @@ Layers (backend):
 | Auth | PyJWT (HS256), bcrypt | Stateless bearer tokens; salted adaptive password hashes |
 | Secrets at rest | cryptography (Fernet) | Authenticated symmetric encryption for SMTP passwords |
 | Email | Python `smtplib` + `email` | Standard, supports STARTTLS/SSL, MIME multipart |
-| AI | Google Gemini REST (`gemini-2.5-flash`), httpx | Free tier, structured JSON output; mock provider offline |
+| AI | Google Gemini REST (`gemini-3.8-flash`), httpx | Free tier, structured JSON output; mock fallback provider |
 | Frontend | Next.js 16, React 19, TypeScript | Routing, type safety, production build |
 | Tests | pytest, FastAPI TestClient, fakes for SMTP/LLM | 173 tests on a dedicated PostgreSQL test database |
 | Dev ops | Docker Compose (Postgres + API + web) | One-command stack |
@@ -189,7 +189,7 @@ and easy to extend). Lists of CC/BCC use JSON columns. The schema is created by 
 ### Design decisions
 
 * **Contact information lives on the company profile.** Contact person, email, phone and address
-  are columns on `companies` because the system supports one primary contact per company.
+  are columns on `companies` because the current assignment requires one primary contact per company.
 * **Deliberately simpler than a separate `company_contacts` table.** With exactly one contact per
   company, a separate table would add a join and more code without adding capability.
 * **Easy to extend later.** If multiple contacts per company are needed, a `company_contacts`
@@ -539,8 +539,8 @@ npm run dev                      # http://localhost:3000
 | `ENCRYPTION_KEY` | ✔ in production | Fernet key for SMTP passwords — `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. If empty in development, a key is derived from `SECRET_KEY` |
 | `LLM_PROVIDER` | | `gemini` (default) or `mock` |
 | `LLM_API_KEY` | | Gemini API key; empty → mock provider |
-| `LLM_MODEL` | | Default `gemini-2.5-flash` |
-| `LLM_FALLBACK_TO_MOCK` | | Default `true` |
+| `LLM_MODEL` | | Default `gemini-3.8-flash` |
+| `LLM_FALLBACK_TO_MOCK` | | Default `true` (also `true` in `.env.example`): if Gemini fails, return a flagged mock draft instead of a 503 |
 | `ALLOWED_ORIGINS` | ✔ | Comma-separated frontend origins, e.g. `http://localhost:3000` (no `*`) |
 | `ENVIRONMENT` | | `development` / `production` (production refuses unsafe settings) |
 | `SMTP_TIMEOUT_SECONDS`, `SMTP_RETRY_BACKOFF_SECONDS` | | Defaults 15 / 1 |
@@ -558,17 +558,31 @@ npm run dev                      # http://localhost:3000
 
 ## 24. LLM configuration
 
-The default provider is **Google Gemini** via Google AI Studio, which offers a free tier
-(rate-limited; limits change — check <https://ai.google.dev/gemini-api/docs/rate-limits>).
+The configured provider is **Google Gemini** (model `gemini-3.8-flash`) via Google AI Studio,
+which offers a free tier (rate-limited; limits change — check
+<https://ai.google.dev/gemini-api/docs/rate-limits>). The application also has a **mock fallback
+provider** so the workflow keeps working when Gemini is unavailable.
 
 1. Sign in at <https://aistudio.google.com/apikey> and create an API key.
-2. In `backend/.env`: `LLM_PROVIDER=gemini`, `LLM_API_KEY=<your key>`, optionally `LLM_MODEL=gemini-2.5-flash`.
-3. Restart the backend. Drafts now show `provider: gemini`.
+2. In `backend/.env`: `LLM_PROVIDER=gemini`, `LLM_API_KEY=<your key>`, `LLM_MODEL=gemini-3.8-flash`,
+   `LLM_FALLBACK_TO_MOCK=true`.
+3. Restart the backend (settings are read at startup). Each draft reports which provider wrote it:
+   `provider: gemini`, or `provider: mock` with `fallback_used: true` and a `warning` if Gemini failed.
 
 The key is read only from the environment, sent in the `x-goog-api-key` header (not the URL), and
 never logged. **Without a key** the app uses `MockLLMProvider`, a deterministic template that builds
 the email from the company profile only, so the entire workflow works offline. If Gemini fails
-(quota, timeout, invalid key) the mock is used as a fallback and the response is flagged.
+(quota, timeout, invalid key, or a temporary 503) the mock is used as a fallback and the response
+is flagged; with `LLM_FALLBACK_TO_MOCK=false` the API returns 503 instead.
+
+**Live testing status.** Real Gemini API requests were attempted with a valid free-tier key. They
+reached the API (the key was accepted and the model was found), but returned **HTTP 503
+`UNAVAILABLE`** — Google's temporary "model is currently experiencing high demand" response — for
+both `gemini-3.5-flash-lite` and `gemini-3.8-flash`. A successful live Gemini generation has
+therefore **not** been demonstrated yet; the Gemini provider is covered by automated tests with
+simulated API responses, and the end-to-end workflow was verified with the mock fallback. Retry
+later if you see this 503 — it is a capacity limit on Google's side, not a configuration error.
+
 To add another provider, implement `LLMProvider.generate_email()` and register it in
 `app/services/llm/__init__.py`.
 
@@ -663,8 +677,10 @@ downgrade) · an end-to-end workflow test. Tests never need real credentials.
   be reviewed (the UI says so and never auto-sends).
 * Prompt-injection defences reduce but cannot fully eliminate the risk; they are layered with human
   review and output checks.
-* Free-tier quotas and rate limits apply; on failure the mock fallback produces a generic template
+* Free-tier quotas, rate limits and temporary capacity errors apply (live testing hit Google's
+  503 `UNAVAILABLE` high-demand response); on failure the mock fallback produces a generic template
   that does not interpret the free-text purpose.
+* A successful live Gemini generation has not been demonstrated yet (see §24).
 * Quality depends on the richness of the company profile — the model is told not to fill gaps.
 * Profile data is sent to the external LLM provider; don't store confidential information in it.
 

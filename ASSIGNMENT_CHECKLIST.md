@@ -47,7 +47,7 @@ system test notes at the bottom). Paths are relative to the repository root.
 | 37 | Contact information in AI | Yes | context `contact` | Yes | |
 | 38 | Signature in AI | Yes | context `signature`, `signature_policy` | Yes — `test_agent_signature.py` | |
 | 39 | Sender identity in AI | Yes | context `sender_name`, `sender_email`, `reply_to` | Yes | Preference overrides applied |
-| 40 | Free-tier LLM | Yes | `services/llm/gemini.py` (Google Gemini, `gemini-2.5-flash`) | Yes — mocked HTTP (`test_llm_providers.py`) | Not exercised against the live Gemini API: no key was available during development |
+| 40 | Free-tier LLM | Yes | `services/llm/gemini.py` (Google Gemini, `gemini-3.8-flash`) | Yes — simulated HTTP responses (`test_llm_providers.py`) | Live requests with a valid free-tier key reached the API but returned HTTP 503 `UNAVAILABLE` (Google high-demand); no successful live generation yet — the mock fallback handled it |
 | 41 | LLM configuration documentation | Yes | README §24, `.env.example` | n/a | |
 | 42 | Mock / fallback | Yes | `services/llm/mock.py`, fallback in `email_agent.py` | Yes — no-key, failure fallback, 503 when disabled | |
 | 43 | User-configured email sending | Yes | `services/email_sender.py` | Yes — `test_email_sending.py`, e2e | Verified live |
@@ -118,4 +118,4 @@ system test notes at the bottom). Paths are relative to the repository root.
 ## Mandatory requirements missing
 
 None. Two items were not verified against live external services, and are covered by mocked tests instead:
-the real Gemini API (no API key was provided) and delivery through a public SMTP provider (tested against a local SMTP server).
+a successful real Gemini generation (live requests returned Google's temporary HTTP 503 `UNAVAILABLE` high-demand response) and delivery through a public SMTP provider (tested against a local SMTP server).

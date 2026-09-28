@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # LLM
     LLM_PROVIDER: str = "gemini"  # "gemini" or "mock"
     LLM_API_KEY: SecretStr = Field(default=SecretStr(""))
-    LLM_MODEL: str = "gemini-2.5-flash"
+    LLM_MODEL: str = "gemini-3.8-flash"
     LLM_TIMEOUT_SECONDS: float = 30.0
     # If the real provider fails (quota, network), fall back to the mock provider
     # and flag the response, instead of failing the request.
