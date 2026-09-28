@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     LLM_API_KEY: SecretStr = Field(default=SecretStr(""))
     LLM_MODEL: str = "gemini-2.5-flash"
     LLM_TIMEOUT_SECONDS: float = 30.0
+    # If the real provider fails (quota, network), fall back to the mock provider
+    # and flag the response, instead of failing the request.
+    LLM_FALLBACK_TO_MOCK: bool = True
 
     # SMTP
     SMTP_TIMEOUT_SECONDS: float = 15.0
