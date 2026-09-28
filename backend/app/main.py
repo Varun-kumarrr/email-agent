@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.router import api_router
 from app.core.config import settings, validate_production_settings
+from app.core.dependencies import DbSession
 from app.core.error_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 
@@ -90,3 +94,17 @@ app.include_router(api_router)
 @app.get("/", tags=["Health"], summary="Health check")
 def read_root():
     return {"message": "Email Agent API is running"}
+
+
+@app.get(
+    "/health",
+    tags=["Health"],
+    summary="Readiness check (API + database)",
+    description="Used by Docker health checks. Returns 503 if the database is unreachable.",
+)
+def health(db: DbSession):
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(status_code=503, content={"status": "unavailable", "database": "unreachable"})
+    return {"status": "ok", "database": "ok"}
