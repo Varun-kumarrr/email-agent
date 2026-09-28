@@ -11,6 +11,8 @@ class FakeSMTPController:
         self.sent: list = []
         self.envelopes: list = []
         self.extensions: set[str] = {"auth", "starttls"}
+        self.auth_mechanisms: str = "LOGIN PLAIN XOAUTH2"  # what the server advertises (like Gmail)
+        self.auth_attempts: list[str] = []  # every AUTH mechanism the client tried
         self.fail_on: str | None = None  # "connect" | "starttls" | "login" | "send"
         self.error: BaseException | None = None
         self.fail_times: int | None = None  # fail only the first N attempts (for retry tests)
@@ -44,11 +46,30 @@ class FakeSMTPController:
             def has_extn(self, name):
                 return name.lower() in controller.extensions
 
+            @property
+            def esmtp_features(self):
+                return {"auth": " " + controller.auth_mechanisms} if "auth" in controller.extensions else {}
+
+            # smtplib passes these to auth(); the real ones build the AUTH payload.
+            def auth_plain(self, challenge=None):
+                return "plain"
+
+            def auth_login(self, challenge=None):
+                return "login"
+
+            def auth(self, mechanism, authobject, *, initial_response_ok=True):
+                controller.auth_attempts.append(mechanism)
+                controller.maybe_fail("login")
+                self.logged_in_as = self.user
+                self.password_used = self.password
+                return (235, b"2.7.0 Accepted")
+
             def starttls(self, context=None):
                 controller.maybe_fail("starttls")
                 self.started_tls = True
 
             def login(self, username, password):
+                controller.auth_attempts.append("login()")
                 controller.maybe_fail("login")
                 self.logged_in_as = username
                 self.password_used = password

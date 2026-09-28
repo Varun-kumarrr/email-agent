@@ -157,3 +157,64 @@ def test_generic_password_spaces_are_preserved(client, company, db_session):
     ).json()
     stored = db_session.get(EmailAccount, __import__("uuid").UUID(account["id"]))
     assert decrypt_secret(stored.encrypted_smtp_password) == "pass with spaces"
+
+
+# ----- regression: Gmail "server closed the connection" during login -------------------------------------
+# smtplib.login() retried every AUTH mechanism after a rejection; Gmail sometimes hung up on the
+# second attempt, so a wrong App Password surfaced as "The SMTP server closed the connection
+# unexpectedly" instead of a clear login failure.
+
+
+def test_login_uses_exactly_one_mechanism_even_when_rejected(client, company, smtp):
+    smtp.fail_on, smtp.error = "login", smtplib.SMTPAuthenticationError(535, b"5.7.8 Username and Password not accepted.")
+    account = client.post(ACCOUNTS, json=GMAIL, headers=company).json()
+    result = client.post(f"{ACCOUNTS}/{account['id']}/test", json={"recipient": "o@example.com"}, headers=company).json()
+    assert smtp.auth_attempts == ["PLAIN"]  # one attempt, not PLAIN then LOGIN
+    assert result["error_code"] == "auth_failed" and "App Password" in result["message"]
+
+
+def test_disconnect_during_login_is_reported_as_login_failure(client, company, smtp):
+    smtp.fail_on, smtp.error = "login", smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+    account = client.post(ACCOUNTS, json=GMAIL, headers=company).json()
+    result = client.post(f"{ACCOUNTS}/{account['id']}/test", json={"recipient": "o@example.com"}, headers=company).json()
+    assert result["success"] is False
+    assert result["error_code"] == "auth_failed"  # previously "disconnected"
+    assert "App Password" in result["message"]
+    assert "closed the connection unexpectedly" not in result["message"]
+
+
+def test_disconnect_during_login_is_not_retried(client, company, smtp):
+    smtp.fail_on, smtp.error = "login", smtplib.SMTPServerDisconnected()
+    account = client.post(ACCOUNTS, json=GMAIL, headers=company).json()
+    response = client.post(
+        SEND, json={"recipient": "p@example.com", "subject": "s", "body": "b", "email_account_id": account["id"]}, headers=company
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["details"]["attempts"] == 1  # retrying bad credentials risks lockout
+    assert smtp.auth_attempts == ["PLAIN"]
+
+
+def test_disconnect_while_sending_is_still_transient(client, company, smtp):
+    smtp.fail_on, smtp.error, smtp.fail_times = "send", smtplib.SMTPServerDisconnected(), 1
+    account = client.post(ACCOUNTS, json=GMAIL, headers=company).json()
+    body = client.post(
+        SEND, json={"recipient": "p@example.com", "subject": "s", "body": "b", "email_account_id": account["id"]}, headers=company
+    ).json()
+    assert body["status"] == "SENT" and body["attempts"] == 2
+
+
+def test_login_mechanism_selection(client, company, smtp):
+    account = client.post(ACCOUNTS, json=GMAIL, headers=company).json()
+    url = f"{ACCOUNTS}/{account['id']}/test"
+    smtp.auth_mechanisms = "LOGIN"
+    client.post(url, json={"recipient": "o@example.com"}, headers=company)
+    smtp.auth_mechanisms = "CRAM-MD5"
+    client.post(url, json={"recipient": "o@example.com"}, headers=company)
+    assert smtp.auth_attempts == ["LOGIN", "login()"]  # LOGIN when only LOGIN; smtplib fallback otherwise
+
+
+def test_password_not_left_on_connection_object(client, company, smtp):
+    account = client.post(ACCOUNTS, json=GMAIL, headers=company).json()
+    client.post(f"{ACCOUNTS}/{account['id']}/test", json={"recipient": "o@example.com"}, headers=company)
+    assert smtp.last.password is None
+    assert smtp.last.password_used == "abcdefghijklmnop"  # it was used for the login itself

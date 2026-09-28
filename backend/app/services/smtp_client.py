@@ -133,6 +133,36 @@ def _open_connection(creds: SmtpCredentials, timeout: float) -> smtplib.SMTP:
     return server
 
 
+def _authenticate(server: smtplib.SMTP, username: str, password: str) -> None:
+    """Log in with exactly ONE mechanism (PLAIN, else LOGIN).
+
+    smtplib's login() retries every mechanism after a rejection, so one wrong password
+    becomes several failed logins. Providers such as Gmail then sometimes close the
+    connection instead of replying, which turns their clear "535 bad credentials" into
+    an unexplained disconnect (and repeated failures can trigger lockout protection).
+    """
+    mechanisms = (server.esmtp_features.get("auth") or "").upper().split()
+    try:
+        for mechanism in ("PLAIN", "LOGIN"):
+            if mechanism in mechanisms:
+                server.user, server.password = username, password  # read by smtplib's auth_* helpers
+                # Raises SMTPAuthenticationError with the provider's reply code on rejection.
+                server.auth(mechanism, getattr(server, f"auth_{mechanism.lower()}"), initial_response_ok=True)
+                return
+        server.login(username, password)  # only other mechanisms (e.g. CRAM-MD5) are offered
+    except smtplib.SMTPServerDisconnected:
+        # The server hung up in the middle of authentication: almost always a rejected
+        # login or abuse throttling, not a network blip. Report it as a login failure and
+        # never retry it automatically (retrying bad credentials risks locking the account).
+        raise SmtpSendError(
+            "auth_failed",
+            "The SMTP server closed the connection while logging in. This usually means the username "
+            "or password was rejected.",
+        ) from None
+    finally:
+        server.password = None  # don't keep the secret on the connection object
+
+
 def send_message(
     creds: SmtpCredentials,
     message: EmailMessage,
@@ -150,7 +180,7 @@ def send_message(
         server.ehlo_or_helo_if_needed()
         if creds.username and creds.password:
             if server.has_extn("auth"):
-                server.login(creds.username, creds.password)
+                _authenticate(server, creds.username, creds.password)
             else:
                 # Relays that don't offer AUTH (internal port-25 relays, local dev servers).
                 # If the server actually requires auth it will reject the message below.
