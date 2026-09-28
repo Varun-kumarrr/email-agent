@@ -26,6 +26,11 @@ class PreferencesService:
     def get(self, company: Company) -> EmailPreferences:
         return self._find(company) or _default_preferences(company)
 
+    def get_for_company_id(self, company_id) -> EmailPreferences:
+        """Used by the delivery worker, which only has the history row's company_id."""
+        prefs = self.db.scalar(select(EmailPreferences).where(EmailPreferences.company_id == company_id))
+        return prefs or EmailPreferences(company_id=company_id, **DEFAULTS.model_dump())
+
     def update(self, company: Company, data: PreferencesUpdate) -> EmailPreferences:
         prefs = self._find(company)
         if prefs is None:
@@ -37,11 +42,13 @@ class PreferencesService:
         return prefs
 
     def sent_today(self, company: Company) -> int:
+        """Emails counted against today's limit: sent ones plus those queued or in flight,
+        so queueing many background jobs cannot exceed the daily limit."""
         start_of_day = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
         count = self.db.scalar(
             select(func.count(EmailHistory.id)).where(
                 EmailHistory.company_id == company.id,
-                EmailHistory.status == EmailStatus.SENT,
+                EmailHistory.status != EmailStatus.FAILED,
                 EmailHistory.created_at >= start_of_day,
             )
         )

@@ -4,9 +4,9 @@ import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, LoadingScreen, PageHeader } from "@/components/ui";
+import { Alert, LoadingScreen, PageHeader, StatusBadge } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
-import type { EmailHistoryPage, EmailStatus } from "@/lib/types";
+import { FINAL_STATUSES, type EmailHistoryPage, type EmailStatus } from "@/lib/types";
 
 const PAGE_SIZE = 10;
 
@@ -18,6 +18,7 @@ export default function HistoryPage() {
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [noCompany, setNoCompany] = useState(false);
   const [error, setError] = useState("");
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const key = `${page}:${status}`;
   const loading = loadedKey !== key; // derived: true until the current page/filter has loaded
@@ -43,7 +44,15 @@ export default function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, status]);
+  }, [page, status, refreshTick]);
+
+  // While any email on this page is still queued/sending/retrying, refresh every 4 seconds.
+  const inFlight = data?.items.some((item) => !FINAL_STATUSES.includes(item.status)) ?? false;
+  useEffect(() => {
+    if (!inFlight) return;
+    const timer = window.setTimeout(() => setRefreshTick((n) => n + 1), 4000);
+    return () => window.clearTimeout(timer);
+  }, [inFlight, data]);
 
   if (noCompany) {
     return (
@@ -76,6 +85,9 @@ export default function HistoryPage() {
             <option value="">All</option>
             <option value="SENT">Sent</option>
             <option value="FAILED">Failed</option>
+            <option value="QUEUED">Queued</option>
+            <option value="SENDING">Sending</option>
+            <option value="RETRYING">Retrying</option>
           </select>
           {data && <span className="muted">{data.total} email(s)</span>}
         </div>
@@ -110,9 +122,7 @@ export default function HistoryPage() {
                         <td>{item.recipient}</td>
                         <td>{item.subject}</td>
                         <td>
-                          <span className={`badge ${item.status === "SENT" ? "badge-success" : "badge-danger"}`}>
-                            {item.status}
-                          </span>
+                          <StatusBadge status={item.status} />
                         </td>
                         <td>{new Date(item.sent_at ?? item.created_at).toLocaleString()}</td>
                         <td>{item.sender_name ? `${item.sender_name} <${item.sender_email}>` : item.sender_email}</td>
@@ -139,7 +149,7 @@ export default function HistoryPage() {
                               </div>
                               {item.error_message && (
                                 <div className="span-2">
-                                  <div className="muted">Failure reason</div>
+                                  <div className="muted">{item.status === "FAILED" ? "Failure reason" : "Last error (will retry)"}</div>
                                   {item.error_message}
                                 </div>
                               )}

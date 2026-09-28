@@ -53,6 +53,7 @@ class SendEmailResponse(BaseModel):
     signature_appended: bool
     attempts: int
     sent_at: datetime | None
+    task_id: str | None = Field(default=None, description="Background job id (background delivery mode).")
 
 
 class EmailHistoryItem(BaseModel):
@@ -64,16 +65,19 @@ class EmailHistoryItem(BaseModel):
     email_account_id: uuid.UUID | None = Field(description="Null if the account was deleted later.")
     sender_email: str
     sender_name: str | None
+    reply_to: str | None = None
     recipient: str
     cc: list[str]
     bcc: list[str]
     subject: str
     body: str
     email_format: EmailFormat
-    status: EmailStatus
+    status: EmailStatus = Field(description="QUEUED, SENDING, RETRYING, SENT or FAILED.")
     error_message: str | None = Field(description="Safe failure reason (no secrets or raw server output).")
+    error_code: str | None = None
     attempts: int
     created_at: datetime
+    last_attempt_at: datetime | None = None
     sent_at: datetime | None
 
 

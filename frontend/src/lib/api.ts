@@ -13,6 +13,7 @@ import type {
   EmailAccountUpdate,
   EmailConfig,
   EmailConfigInput,
+  EmailHistoryItem,
   EmailHistoryPage,
   EmailTemplate,
   EmailTemplateInput,
@@ -177,6 +178,7 @@ export const api = {
   generateEmail: (data: GenerateEmailInput) =>
     request<GeneratedEmail>("/api/v1/agent/generate-email", { method: "POST", body: data }),
   sendEmail: (data: SendEmailInput) => request<SendEmailResult>("/api/v1/emails/send", { method: "POST", body: data }),
+  historyItem: (id: string) => request<EmailHistoryItem>(`/api/v1/emails/history/${encodeURIComponent(id)}`),
   history: (page = 1, pageSize = 20, status?: EmailStatus) => {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (status) params.set("status", status);

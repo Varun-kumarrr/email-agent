@@ -19,6 +19,8 @@ os.environ["ENCRYPTION_KEY"] = ""
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["LLM_API_KEY"] = ""
 os.environ["SMTP_RETRY_BACKOFF_SECONDS"] = "0"
+os.environ["EMAIL_DELIVERY_MODE"] = "sync"
+os.environ["CELERY_BROKER_URL"] = "memory://"  # never a real Redis in automated tests
 
 import pytest
 from alembic import command
@@ -114,6 +116,32 @@ def _truncate_all(engine) -> None:
 def engine(_postgres_engine):
     _truncate_all(_postgres_engine)  # every test starts with empty tables
     yield _postgres_engine
+
+
+@pytest.fixture(autouse=True)
+def _worker_uses_test_database(engine, monkeypatch):
+    """The Celery task opens its own DB sessions: point them at the test database."""
+    import app.worker.tasks as tasks
+
+    TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    monkeypatch.setattr(tasks, "session_factory", TestingSession)
+
+
+@pytest.fixture()
+def celery_eager(monkeypatch):
+    """Background mode with Celery running tasks in-process (eagerly); no Redis needed."""
+    from app.core.config import settings
+    from app.worker.celery_app import celery_app
+
+    monkeypatch.setattr(settings, "EMAIL_DELIVERY_MODE", "celery")
+    monkeypatch.setattr(settings, "EMAIL_RETRY_BASE_SECONDS", 0.0)
+    celery_app.conf.task_always_eager = True
+    # Not propagating lets Celery's eager apply() re-run the task on self.retry(),
+    # exactly like a real worker would (the task itself never raises anything else).
+    celery_app.conf.task_eager_propagates = False
+    yield celery_app
+    celery_app.conf.task_always_eager = False
+    celery_app.conf.task_eager_propagates = False
 
 
 @pytest.fixture()

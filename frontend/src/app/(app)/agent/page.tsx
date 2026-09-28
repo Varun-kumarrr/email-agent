@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, Field, PageHeader, SubmitButton } from "@/components/ui";
+import { Alert, Field, PageHeader, StatusBadge, SubmitButton } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { firstInvalidEmail, isEmail, parseEmailList } from "@/lib/emails";
-import type { EmailFormat, EmailTemplate, GeneratedEmail, SendEmailResult, Tone } from "@/lib/types";
+import { FINAL_STATUSES, type EmailFormat, type EmailHistoryItem, type EmailTemplate, type GeneratedEmail, type SendEmailResult, type Tone } from "@/lib/types";
 
 const TONES: { value: Tone; label: string }[] = [
   { value: "professional", label: "Professional" },
@@ -54,6 +54,23 @@ export default function AgentPage() {
   const [sent, setSent] = useState<SendEmailResult | null>(null);
   const [noCompany, setNoCompany] = useState(false);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [delivery, setDelivery] = useState<EmailHistoryItem | null>(null);
+  const [pollCount, setPollCount] = useState(0);
+
+  // Background delivery: poll the history record until it is SENT or FAILED (max ~2 minutes).
+  const deliveryPending = !!sent && !FINAL_STATUSES.includes(delivery?.status ?? sent.status);
+  useEffect(() => {
+    if (!sent || !deliveryPending || pollCount > 60) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        setDelivery(await api.historyItem(sent.id));
+      } catch {
+        /* keep polling; a transient network error should not stop status updates */
+      }
+      setPollCount((n) => n + 1);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [sent, deliveryPending, pollCount]);
   const [builtins, setBuiltins] = useState<string[]>([]);
   const [templateId, setTemplateId] = useState("");
   const [templateVars, setTemplateVars] = useState<Record<string, string>>({});
@@ -157,6 +174,8 @@ export default function AgentPage() {
         bcc,
         append_signature: generated?.signature_preview ? draft.appendSignature : null,
       });
+      setDelivery(null);
+      setPollCount(0);
       setSent(result);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -319,9 +338,17 @@ export default function AgentPage() {
           )}
           {sent && (
             <div style={{ marginTop: 14 }}>
-              <Alert kind="success">
-                {sent.message} From {sent.sender_name ? `${sent.sender_name} <${sent.sender_email}>` : sent.sender_email}
-                {sent.signature_appended ? " · signature appended" : ""}. <Link href="/history">View history</Link>
+              <Alert kind={(delivery?.status ?? sent.status) === "FAILED" ? "error" : "success"}>
+                <StatusBadge status={delivery?.status ?? sent.status} />{" "}
+                {(delivery?.status ?? sent.status) === "SENT" && sent.status !== "SENT"
+                  ? `Email sent to ${sent.recipient}.`
+                  : (delivery?.status ?? sent.status) === "FAILED"
+                    ? `Delivery failed: ${delivery?.error_message ?? "see Email History."}`
+                    : sent.message}{" "}
+                From {sent.sender_name ? `${sent.sender_name} <${sent.sender_email}>` : sent.sender_email}
+                {sent.signature_appended ? " · signature appended" : ""}.{" "}
+                {deliveryPending && "Checking delivery status… "}
+                <Link href="/history">View history</Link>
               </Alert>
             </div>
           )}

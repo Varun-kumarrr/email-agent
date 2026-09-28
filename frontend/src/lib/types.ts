@@ -2,7 +2,8 @@
 
 export type SecurityType = "NONE" | "STARTTLS" | "SSL_TLS";
 export type EmailFormat = "HTML" | "PLAIN_TEXT";
-export type EmailStatus = "SENT" | "FAILED";
+export type EmailStatus = "QUEUED" | "SENDING" | "RETRYING" | "SENT" | "FAILED";
+export const FINAL_STATUSES: EmailStatus[] = ["SENT", "FAILED"];
 export type Tone = "professional" | "friendly" | "formal" | "persuasive" | "concise";
 export type EmailProviderName = "GMAIL" | "OUTLOOK" | "GENERIC";
 export type AccountType = "SMTP" | "OAUTH";
@@ -247,6 +248,7 @@ export interface SendEmailResult {
   signature_appended: boolean;
   attempts: number;
   sent_at: string | null;
+  task_id: string | null;
 }
 
 export interface EmailHistoryItem {
@@ -254,6 +256,7 @@ export interface EmailHistoryItem {
   email_account_id: string | null;
   sender_email: string;
   sender_name: string | null;
+  reply_to: string | null;
   recipient: string;
   cc: string[];
   bcc: string[];
@@ -262,8 +265,10 @@ export interface EmailHistoryItem {
   email_format: EmailFormat;
   status: EmailStatus;
   error_message: string | null;
+  error_code: string | null;
   attempts: number;
   created_at: string;
+  last_attempt_at: string | null;
   sent_at: string | null;
 }
 

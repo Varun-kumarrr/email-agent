@@ -76,3 +76,16 @@ export function SubmitButton({
     </button>
   );
 }
+
+const STATUS_STYLE: Record<string, { cls: string; label: string }> = {
+  QUEUED: { cls: "badge-info", label: "Queued" },
+  SENDING: { cls: "badge-info", label: "Sending" },
+  RETRYING: { cls: "badge-warning", label: "Retrying" },
+  SENT: { cls: "badge-success", label: "Sent" },
+  FAILED: { cls: "badge-danger", label: "Failed" },
+};
+
+export function StatusBadge({ status }: { status: string }) {
+  const style = STATUS_STYLE[status] ?? { cls: "", label: status };
+  return <span className={`badge ${style.cls}`}>{style.label}</span>;
+}

@@ -1,32 +1,40 @@
 """Sends email through one of the authenticated company's own email accounts.
 
 Flow: user -> company -> selected email account (or the company default) ->
-preferences -> sender / reply-to -> signature -> send (with retries on transient
-errors) -> history record -> safe result.
+preferences -> sender / reply-to -> signature -> history record (QUEUED) ->
+delivery -> history updated -> safe result.
+
+Delivery happens either inline (EMAIL_DELIVERY_MODE=sync, retries inline) or in
+the background by the Celery worker (EMAIL_DELIVERY_MODE=celery), in which case
+the API returns immediately with the QUEUED history record.
 
 There is no system-wide sender: the From address is always the selected account's
 address, and credentials come only from that account.
 """
 
 import logging
-import time
-from datetime import datetime, timezone
+import uuid
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.exceptions import BadRequestError, EmailDeliveryError, RateLimitError
+from app.core.exceptions import BadRequestError, EmailDeliveryError, RateLimitError, ServiceUnavailableError
 from app.models import Company, EmailHistory, EmailStatus, User
 from app.schemas.email import SendEmailRequest, SendEmailResponse
-from app.services import smtp_client
-from app.services.email_composer import build_message
-from app.services.email_account_service import EmailAccountService, build_smtp_credentials
+from app.services.email_account_service import EmailAccountService
+from app.services.email_delivery import AttemptResult, deliver_now, finalize_body
 from app.services.preferences_service import PreferencesService
 from app.services.signature_service import SignatureService
-from app.services.smtp_client import SmtpSendError
-from app.utils.signature import append_signature, drop_trailing_closing, ends_with_signature, signature_has_closing
+from app.utils.signature import ends_with_signature
 
 logger = logging.getLogger(__name__)
+
+
+def enqueue_delivery(history_id: uuid.UUID) -> str:
+    """Hand the email to the Celery worker. Returns the task id."""
+    from app.worker.tasks import send_email_task  # imported lazily: sync mode never needs Celery
+
+    return send_email_task.apply_async(args=[str(history_id)]).id
 
 
 class EmailSenderService:
@@ -66,78 +74,71 @@ class EmailSenderService:
         if wants_signature and signature is not None and not ends_with_signature(data.body, signature.signature_text):
             signature_text = signature.signature_text
 
-        body = data.body
-        if signature_text and signature_has_closing(signature_text):
-            body = drop_trailing_closing(body)  # avoid "Best regards," twice
-
-        message = build_message(
-            sender_email=account.email_address,
-            sender_name=sender_name,
-            recipient=recipient,
-            subject=data.subject,
-            body=body,
-            email_format=email_format,
-            cc=cc,
-            reply_to=reply_to,
-            signature=signature_text,
-        )
-        final_body = append_signature(data.body, signature_text) if signature_text else data.body
-
-        attempts, error = self._deliver(account, message, envelope, max_retries=prefs.max_send_retries)
-
-        now = datetime.now(timezone.utc)
+        # Record the email first (QUEUED): this row is what the worker delivers and updates.
         record = EmailHistory(
             company_id=company.id,
             sent_by_user_id=user.id,
             email_account_id=account.id,
             sender_email=account.email_address,
             sender_name=sender_name,
+            reply_to=reply_to,
             recipient=recipient,
             cc=cc,
             bcc=bcc,
             subject=data.subject,
-            body=final_body,
+            body=finalize_body(data.body, signature_text, email_format),
             email_format=email_format,
-            status=EmailStatus.FAILED if error else EmailStatus.SENT,
-            error_message=error.message if error else None,  # safe, pre-classified message only
-            attempts=attempts,
-            sent_at=None if error else now,
+            status=EmailStatus.QUEUED,
+            attempts=0,
         )
         self.db.add(record)
         self.db.commit()
 
-        if error:
+        if settings.EMAIL_DELIVERY_MODE == "celery":
+            try:
+                record.task_id = enqueue_delivery(record.id)
+                self.db.commit()
+            except Exception as exc:  # broker unreachable
+                logger.error("Could not queue email %s: %s", record.id, type(exc).__name__)
+                record.status = EmailStatus.FAILED
+                record.error_code = "queue_unavailable"
+                record.error_message = "The background email queue is unavailable. Please try again later."
+                self.db.commit()
+                raise ServiceUnavailableError(
+                    record.error_message, details={"history_id": str(record.id), "error_code": record.error_code}
+                )
+            return self._response(record, account.id, signature_text, f"Email to {recipient} queued for delivery.")
+
+        outcome = deliver_now(self.db, record.id)
+        self.db.refresh(record)
+        if outcome.result != AttemptResult.SENT:
+            error = outcome.error
             raise EmailDeliveryError(
-                error.message,
-                details={"history_id": str(record.id), "error_code": error.code, "attempts": attempts},
+                record.error_message or "The email could not be sent",
+                details={
+                    "history_id": str(record.id),
+                    "error_code": error.code if error else record.error_code,
+                    "attempts": record.attempts,
+                },
             )
+        return self._response(record, account.id, signature_text, f"Email sent to {recipient}.")
+
+    @staticmethod
+    def _response(record: EmailHistory, account_id, signature_text, message: str) -> SendEmailResponse:
         return SendEmailResponse(
             id=record.id,
             status=record.status,
-            message=f"Email sent to {recipient}.",
-            email_account_id=account.id,
-            sender_email=account.email_address,
-            sender_name=sender_name,
-            recipient=recipient,
-            cc=cc,
-            bcc=bcc,
-            subject=data.subject,
-            format=email_format,
+            message=message,
+            email_account_id=account_id,
+            sender_email=record.sender_email,
+            sender_name=record.sender_name,
+            recipient=record.recipient,
+            cc=list(record.cc),
+            bcc=list(record.bcc),
+            subject=record.subject,
+            format=record.email_format,
             signature_appended=signature_text is not None,
-            attempts=attempts,
-            sent_at=now,
+            attempts=record.attempts,
+            sent_at=record.sent_at,
+            task_id=record.task_id,
         )
-
-    def _deliver(self, account, message, envelope, *, max_retries: int) -> tuple[int, SmtpSendError | None]:
-        """Send with retries on transient failures only. Returns (attempts, error or None)."""
-        attempts = 0
-        while True:
-            attempts += 1
-            try:
-                smtp_client.send_message(build_smtp_credentials(account), message, envelope)
-                return attempts, None
-            except SmtpSendError as error:
-                if not error.transient or attempts > max_retries:
-                    return attempts, error
-                logger.info("Transient SMTP error code=%s; retrying (attempt %s)", error.code, attempts + 1)
-                time.sleep(settings.SMTP_RETRY_BACKOFF_SECONDS * attempts)

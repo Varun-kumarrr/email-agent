@@ -13,8 +13,15 @@ class EmailFormat(str, enum.Enum):
 
 
 class EmailStatus(str, enum.Enum):
+    QUEUED = "QUEUED"  # recorded, waiting for a worker (background mode)
+    SENDING = "SENDING"  # a delivery attempt is in progress
+    RETRYING = "RETRYING"  # a transient error occurred; another attempt is scheduled
     SENT = "SENT"
     FAILED = "FAILED"
+
+    @property
+    def is_final(self) -> bool:
+        return self in (EmailStatus.SENT, EmailStatus.FAILED)
 
 
 class EmailProvider(str, enum.Enum):

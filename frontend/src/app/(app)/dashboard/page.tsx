@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { Alert, LoadingScreen, PageHeader } from "@/components/ui";
+import { Alert, LoadingScreen, PageHeader, StatusBadge } from "@/components/ui";
 import { api, ApiError, isNotFound } from "@/lib/api";
 import type { Company, EmailAccount, EmailHistoryPage, Preferences, Signature } from "@/lib/types";
 
@@ -135,7 +135,7 @@ export default function DashboardPage() {
                     <td>{item.recipient}</td>
                     <td>{item.subject}</td>
                     <td>
-                      <span className={`badge ${item.status === "SENT" ? "badge-success" : "badge-danger"}`}>{item.status}</span>
+                      <StatusBadge status={item.status} />
                     </td>
                     <td className="muted">{new Date(item.created_at).toLocaleString()}</td>
                   </tr>

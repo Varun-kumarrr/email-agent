@@ -9,7 +9,7 @@ from functools import lru_cache
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-from typing import Annotated
+from typing import Annotated, Literal
 
 
 class Settings(BaseSettings):
@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # SMTP
     SMTP_TIMEOUT_SECONDS: float = 15.0
     SMTP_RETRY_BACKOFF_SECONDS: float = 1.0
+
+    # Email delivery: "sync" sends inside the HTTP request (no Redis needed);
+    # "celery" queues a background job for the Celery worker (requires Redis).
+    EMAIL_DELIVERY_MODE: Literal["sync", "celery"] = "sync"
+    REDIS_URL: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str = ""  # defaults to REDIS_URL
+    # Background retry backoff: base * 2^(attempt-1), capped, plus jitter.
+    EMAIL_RETRY_BASE_SECONDS: float = 30.0
+    EMAIL_RETRY_MAX_SECONDS: float = 900.0
     # When False, SMTP hosts resolving to private/loopback/link-local addresses are
     # refused (prevents using the server to probe internal networks - SSRF).
     # Keep True only for local development (e.g. a local test mail server).
@@ -83,6 +92,10 @@ def validate_production_settings(s: Settings) -> None:
         problems.append("SMTP_ALLOW_PRIVATE_HOSTS must be false")
     if problems:
         raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
+
+
+def celery_broker_url(s: Settings) -> str:
+    return s.CELERY_BROKER_URL.strip() or s.REDIS_URL
 
 
 @lru_cache

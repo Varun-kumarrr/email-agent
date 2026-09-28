@@ -130,6 +130,7 @@ class EmailHistory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     sender_email: Mapped[str] = mapped_column(String(255), nullable=False)
     sender_name: Mapped[str | None] = mapped_column(String(120))
+    reply_to: Mapped[str | None] = mapped_column(String(255))
     recipient: Mapped[str] = mapped_column(String(255), nullable=False)
     cc: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bcc: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
@@ -137,8 +138,11 @@ class EmailHistory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     email_format: Mapped[EmailFormat] = mapped_column(_enum(EmailFormat), nullable=False)
     status: Mapped[EmailStatus] = mapped_column(_enum(EmailStatus), nullable=False, index=True)
-    error_message: Mapped[str | None] = mapped_column(String(500))
-    attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String(500))  # safe, pre-classified text only
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(64))  # Celery task id (background mode)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     company: Mapped["Company"] = relationship(back_populates="email_history")

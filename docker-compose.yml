@@ -1,7 +1,8 @@
-# Development stack: PostgreSQL + Redis + FastAPI + Next.js
+# Development stack: PostgreSQL + Redis + FastAPI + Celery worker + Next.js
 #
 #   cp .env.example .env      # fill in the secrets (this file is git-ignored)
 #   docker compose up --build
+#   docker compose --profile mail up --build   # also start Mailpit (local test inbox, http://localhost:8025)
 #
 # Frontend: http://localhost:3000   API: http://localhost:8000/docs   Health: http://localhost:8000/health
 #
@@ -49,6 +50,7 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_URL: postgresql+psycopg://email_agent:${POSTGRES_PASSWORD}@db:5432/email_agent
       REDIS_URL: redis://redis:6379/0
+      EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-celery}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
@@ -66,6 +68,37 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  worker:
+    # Same image as the backend; runs the Celery worker that delivers queued emails.
+    build: ./backend
+    restart: unless-stopped
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "-Q", "email", "--concurrency=2"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy # the backend applies the migrations first
+    environment: *backend-env
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 20s
+      timeout: 15s
+      retries: 5
+      start_period: 20s
+
+  mailpit:
+    # Optional local SMTP catcher for testing delivery without sending real email.
+    # Enable with --profile mail. Its SMTP host (mailpit:1025) is a private address, so
+    # set SMTP_ALLOW_PRIVATE_HOSTS=true for that session (never in production).
+    image: axllent/mailpit:latest
+    profiles: ["mail"]
+    restart: unless-stopped
+    ports:
+      - "8025:8025" # web inbox
+      - "1025:1025" # SMTP
 
   frontend:
     build:

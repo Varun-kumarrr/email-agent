@@ -2,7 +2,7 @@ import math
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response, status
 
 from app.core.dependencies import CurrentCompany, CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
@@ -18,28 +18,34 @@ router = APIRouter(prefix="/emails", tags=["Emails"])
 @router.post(
     "/send",
     response_model=SendEmailResponse,
-    summary="Send an email through the company's own SMTP account",
+    summary="Send an email through one of the company's own email accounts",
     description=(
-        "The sender is always the authenticated company's configured SMTP address; there is no "
-        "system-wide sender. Applies preferences (sender name, reply-to, format, default CC/BCC, "
-        "limits) and the signature, retries transient SMTP errors, and records the attempt in the "
-        "email history."
+        "The sender is always the selected (or default) account of the authenticated company; there "
+        "is no system-wide sender. Applies preferences (sender name, reply-to, format, default CC/BCC, "
+        "limits) and the signature, and records the email in the history. In background mode "
+        "(EMAIL_DELIVERY_MODE=celery) it returns **202** with status QUEUED right away and a worker "
+        "delivers it (poll GET /emails/history/{id}); in sync mode it returns 200 once sent."
     ),
     responses={
-        400: {"model": ErrorResponse, "description": "Too many recipients"},
-        404: {"model": ErrorResponse, "description": "Company or SMTP configuration missing"},
+        202: {"model": SendEmailResponse, "description": "Queued for background delivery"},
+        400: {"model": ErrorResponse, "description": "Too many recipients or inactive account"},
+        404: {"model": ErrorResponse, "description": "Company or email account missing"},
         429: {"model": ErrorResponse, "description": "Daily sending limit reached"},
-        502: {"model": ErrorResponse, "description": "SMTP delivery failed (recorded in history)"},
+        502: {"model": ErrorResponse, "description": "Delivery failed (sync mode; recorded in history)"},
+        503: {"model": ErrorResponse, "description": "Background queue unavailable (recorded in history)"},
     },
 )
-def send_email(data: SendEmailRequest, company: CurrentCompany, user: CurrentUser, db: DbSession):
-    return EmailSenderService(db).send(company, user, data)
+def send_email(data: SendEmailRequest, company: CurrentCompany, user: CurrentUser, db: DbSession, response: Response):
+    result = EmailSenderService(db).send(company, user, data)
+    if not result.status.is_final:
+        response.status_code = status.HTTP_202_ACCEPTED
+    return result
 
 
 @router.get(
     "/history",
     response_model=EmailHistoryPage,
-    summary="List the company's sent/failed emails (newest first)",
+    summary="List the company's emails and their delivery status (newest first)",
 )
 def email_history(
     company: CurrentCompany,
