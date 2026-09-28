@@ -11,6 +11,7 @@ from app.models import Company
 from app.repositories.company_repository import CompanyRepository
 from app.schemas.agent import GenerateEmailRequest, GenerateEmailResponse
 from app.services.agent.context import build_company_context
+from app.services.agent.output_guard import guard_output
 from app.services.agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.email_config_service import EmailConfigService
 from app.services.llm import LLMError, LLMProvider, LLMRequest, MockLLMProvider, get_llm_provider
@@ -34,14 +35,14 @@ class EmailAgentService:
             preferences=PreferencesService(self.db).get(company),
             signature=SignatureService(self.db).find(company),
         )
-        user_prompt = build_user_prompt(
-            context,
-            recipient_name=data.recipient_name,
-            recipient_email=data.recipient_email,
-            purpose=data.purpose,
-            tone=data.tone.value,
-            additional_instructions=data.additional_instructions,
-        )
+        email_request = {
+            "recipient_name": data.recipient_name,
+            "recipient_email": data.recipient_email,
+            "purpose": data.purpose,
+            "tone": data.tone.value,
+            "additional_instructions": data.additional_instructions,
+        }
+        user_prompt = build_user_prompt(context, email_request)
         mock_context = {
             **context,
             "recipient_name": data.recipient_name,
@@ -53,13 +54,13 @@ class EmailAgentService:
     def generate(self, company: Company, data: GenerateEmailRequest) -> GenerateEmailResponse:
         request = self.build_request(company, data)
         try:
-            email = self.provider.generate_email(request)
+            email = guard_output(self.provider.generate_email(request))
             return GenerateEmailResponse(subject=email.subject, body=email.body, provider=self.provider.name)
         except LLMError as error:
             logger.warning("LLM provider %s failed code=%s", self.provider.name, error.code)
             if not settings.LLM_FALLBACK_TO_MOCK or isinstance(self.provider, MockLLMProvider):
                 raise ServiceUnavailableError(error.message, details={"code": error.code})
-            email = MockLLMProvider().generate_email(request)
+            email = guard_output(MockLLMProvider().generate_email(request))
             return GenerateEmailResponse(
                 subject=email.subject,
                 body=email.body,
