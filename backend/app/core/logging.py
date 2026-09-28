@@ -35,6 +35,20 @@ class RedactingFilter(logging.Filter):
         return True
 
 
+class OAuthQueryRedactingFilter(logging.Filter):
+    """Uvicorn's access log records the full request URL. An OAuth callback URL carries the
+    authorization code and state in its query string, so drop the query for /oauth/ paths.
+    (uvicorn.access args: client_addr, method, full_path, http_version, status_code)"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            path = args[2]
+            if "/oauth/" in path and "?" in path:
+                record.args = (*args[:2], path.split("?", 1)[0] + "?[redacted]", *args[3:])
+        return True
+
+
 def configure_logging(level: str = "INFO") -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
@@ -43,5 +57,8 @@ def configure_logging(level: str = "INFO") -> None:
     if not any(isinstance(f, RedactingFilter) for h in root.handlers for f in h.filters):
         root.addHandler(handler)
     root.setLevel(level)
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, OAuthQueryRedactingFilter) for f in access_logger.filters):
+        access_logger.addFilter(OAuthQueryRedactingFilter())
     # httpx logs full request URLs at INFO; keep it quiet.
     logging.getLogger("httpx").setLevel(logging.WARNING)

@@ -154,6 +154,9 @@ export const api = {
   previewTemplate: (id: string, data: { variables: Record<string, string>; recipient_name?: string | null }) =>
     request<TemplatePreview>(`/api/v1/email-templates/${encodeURIComponent(id)}/preview`, { method: "POST", body: data }),
 
+  // OAuth connections (the browser is then sent to the provider's consent page)
+  authorizeGmail: () => request<{ authorization_url: string }>("/api/v1/oauth/gmail/authorize"),
+
   // Legacy single email configuration (maps to the primary SMTP account)
   getEmailConfig: () => request<EmailConfig>("/api/v1/email-config"),
   createEmailConfig: (data: EmailConfigInput) =>

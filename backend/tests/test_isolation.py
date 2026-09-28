@@ -55,6 +55,9 @@ def test_client_supplied_company_id_is_ignored(client, auth_headers, other_auth_
 
 
 def test_no_route_accepts_company_or_user_id_path_parameter():
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    # Use the OpenAPI paths: FastAPI registers included routers lazily, so app.routes
+    # does not list the /api/v1 endpoints themselves.
+    paths = list(app.openapi()["paths"])
+    assert any(p.startswith("/api/v1/") for p in paths)
+    for path in paths:
         assert "{company_id}" not in path and "{user_id}" not in path, path

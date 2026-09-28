@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
 import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
@@ -71,7 +72,45 @@ const providerLabel = (a: EmailAccount) =>
       : "Outlook (OAuth)"
     : (PROVIDERS.find((p) => p.value === a.provider)?.label ?? a.provider);
 
+// Safe, fixed messages for the ?oauth=gmail&status=...&reason=... callback redirect.
+const OAUTH_REASONS: Record<string, string> = {
+  access_denied: "You cancelled the Google consent screen.",
+  state_missing: "The connection link was incomplete. Please try again.",
+  state_invalid: "The connection request was not recognised. Please start again from this page.",
+  state_used: "This connection link was already used. Please start again.",
+  state_expired: "The connection request expired. Please try again.",
+  scope_missing: "Permission to send email was not granted. Tick “Send email on your behalf” on Google’s consent screen.",
+  email_unverified: "Google did not confirm a verified email address for this account.",
+  refresh_token_missing: "Google did not return long-term access. Remove the app at myaccount.google.com/permissions and connect again.",
+  token_exchange_failed: "Google rejected the authorization. Please try connecting again.",
+  account_mismatch: "Your session changed during the connection. Please log in and try again.",
+};
+
+function oauthBanner(params: URLSearchParams): { kind: "success" | "error"; text: string } | null {
+  if (params.get("oauth") !== "gmail") return null;
+  if (params.get("status") === "success") {
+    return {
+      kind: "success",
+      text: params.get("reason") === "reconnected" ? "Gmail reconnected. Its access was refreshed." : "Gmail connected. Send a test email to verify it.",
+    };
+  }
+  const reason = params.get("reason") ?? "";
+  return { kind: "error", text: `Gmail connection failed: ${OAUTH_REASONS[reason] ?? "Please try again."}` };
+}
+
 export default function EmailAccountsPage() {
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <EmailAccountsContent />
+    </Suspense>
+  );
+}
+
+function EmailAccountsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const banner = oauthBanner(searchParams);
+  const [connecting, setConnecting] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [noCompany, setNoCompany] = useState(false);
@@ -209,6 +248,20 @@ export default function EmailAccountsPage() {
     }
   }
 
+  async function connectGmail() {
+    setConnecting(true);
+    setError("");
+    try {
+      const { authorization_url } = await api.authorizeGmail();
+      // Only ever navigate to Google's consent page.
+      if (!authorization_url.startsWith("https://accounts.google.com/")) throw new Error("unexpected authorization URL");
+      window.location.assign(authorization_url);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not start the Gmail connection.");
+      setConnecting(false);
+    }
+  }
+
   async function runTest(account: EmailAccount) {
     const recipient = testRecipient.trim() || account.email_address;
     if (!isEmail(recipient)) {
@@ -259,6 +312,14 @@ export default function EmailAccountsPage() {
         title="Email Accounts"
         description="Mailboxes your company sends from. Each email is sent through the account you choose — never a shared system account."
       />
+      {banner && (
+        <div className={`alert alert-${banner.kind}`} role={banner.kind === "error" ? "alert" : "status"} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <span>{banner.text}</span>
+          <button type="button" className="btn btn-secondary btn-small" onClick={() => router.replace("/email-accounts")}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <Alert kind="success">{success}</Alert>
       <Alert kind="error">{error}</Alert>
 
@@ -266,6 +327,9 @@ export default function EmailAccountsPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h2 style={{ margin: 0 }}>Your accounts</h2>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <SubmitButton type="button" className="btn btn-secondary" loading={connecting} onClick={connectGmail}>
+              Connect Gmail (OAuth)
+            </SubmitButton>
             <button type="button" className="btn" onClick={startNew}>
               + Add SMTP account
             </button>

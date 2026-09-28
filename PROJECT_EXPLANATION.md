@@ -112,6 +112,23 @@ sprinkled around: every company-owned endpoint depends on `get_current_company`,
 * `classify_error` maps every failure (DNS, refused, timeout, TLS, auth, rejected recipient,
   SMTP reply codes) to a **safe** code + message and marks transient errors for retry.
 
+## 12a. Gmail OAuth accounts
+
+A company can connect Gmail with OAuth 2.0 instead of an App Password (`app/api/v1/endpoints/oauth.py`,
+`app/services/oauth_service.py`, `google_oauth.py`, `gmail_delivery.py`):
+
+* **Authorize** (JWT required) stores a one-time state — 32 random bytes kept only as a SHA-256 hash, bound
+  to the user and company, expiring in 10 minutes — plus an encrypted PKCE verifier, and returns Google's
+  consent URL (scopes `openid email gmail.send`, `access_type=offline`, `prompt=consent`).
+* **Callback** (no JWT: Google redirects the browser) consumes the state exactly once *before* exchanging
+  the code server-side, requires the `gmail.send` scope and a verified email, then creates or updates an
+  `EmailAccount(account_type=OAUTH, provider=GMAIL)` with Fernet-encrypted tokens, and redirects to a fixed
+  frontend URL with only a safe status/reason.
+* **Sending** refreshes the access token automatically (row-locked, re-encrypted) and posts the same MIME
+  message to the Gmail API; a revoked refresh token fails permanently with "Reconnect Gmail", while Gmail
+  429/5xx are retried like SMTP transient errors, so Celery background delivery works unchanged.
+* The access log redacts the callback's query string, so authorization codes never reach logs.
+
 ## 13. SMTP security
 
 * Password is write-only in the API, `SecretStr` in the request, Fernet-encrypted at rest

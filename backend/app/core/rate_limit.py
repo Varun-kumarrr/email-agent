@@ -47,4 +47,6 @@ login_limiter = RateLimiter(10, 300, "Too many login attempts. Please wait a few
 register_limiter = RateLimiter(20, 3600, "Too many registrations from this address. Try again later.")
 generation_limiter = RateLimiter(30, 60, "Too many AI generation requests. Please wait a minute.")
 
-ALL_LIMITERS = (login_limiter, register_limiter, generation_limiter)
+oauth_limiter = RateLimiter(20, 600, "Too many connection attempts. Please wait a few minutes.")
+
+ALL_LIMITERS = (login_limiter, register_limiter, generation_limiter, oauth_limiter)

@@ -45,6 +45,7 @@ def _prod(**overrides):
         ENCRYPTION_KEY=SecretStr("fernet-key-placeholder"),
         ALLOWED_ORIGINS=["https://app.example.com"],
         SMTP_ALLOW_PRIVATE_HOSTS=False,
+        FRONTEND_URL="https://app.example.com",
     )
     base.update(overrides)
     return Settings(_env_file=None, **base)
@@ -58,6 +59,8 @@ def test_production_settings_validation():
         {"ENCRYPTION_KEY": SecretStr("")},
         {"ALLOWED_ORIGINS": ["*"]},
         {"SMTP_ALLOW_PRIVATE_HOSTS": True},
+        {"FRONTEND_URL": "http://app.example.com"},
+        {"GOOGLE_CLIENT_ID": "id", "GOOGLE_REDIRECT_URI": "http://app.example.com/cb"},
     ]:
         with pytest.raises(RuntimeError):
             validate_production_settings(_prod(**unsafe))

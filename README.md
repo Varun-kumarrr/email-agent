@@ -546,6 +546,9 @@ npm run dev                      # http://localhost:3000
 | `SMTP_TIMEOUT_SECONDS`, `SMTP_RETRY_BACKOFF_SECONDS` | | Defaults 15 / 1 |
 | `SMTP_ALLOW_PRIVATE_HOSTS` | | Default `true` for local dev; must be `false` in production |
 | `LOG_LEVEL`, `SQL_ECHO` | | Default `INFO` / `false` |
+| `FRONTEND_URL` | | Where the browser returns after an OAuth connection (default `http://localhost:3000`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Gmail OAuth | Google Cloud Web-application OAuth client; empty disables "Connect Gmail" |
+| `GOOGLE_REDIRECT_URI` | for Gmail OAuth | Default `http://localhost:8000/api/v1/oauth/gmail/callback`; must match the Google client exactly |
 
 **frontend/.env.local** (template: `frontend/.env.example`)
 
@@ -600,6 +603,82 @@ Configure in the UI (Email Configuration page) — values are per company.
 
 Use **Test Email Configuration** after saving. The sender email should match the SMTP account
 (providers reject mismatched `From` addresses).
+
+## 25a. Gmail OAuth (Connect Gmail)
+
+Besides SMTP (App Password), a company can connect a Gmail account with **OAuth 2.0**. No mailbox
+password is stored: the app keeps Google-issued tokens (encrypted) and sends through the **Gmail API**.
+
+### Google Cloud setup (one time, by the project owner)
+
+1. **Project** — <https://console.cloud.google.com/> → create or select a project.
+2. **Enable the Gmail API** — *APIs & Services → Library → "Gmail API" → Enable*.
+3. **OAuth consent screen** (*Google Auth Platform → Branding / Audience / Data access*):
+   - User type **External** (a personal Gmail account can only use External), app name, support email.
+   - **Scopes** (Data access): `openid`, `.../auth/userinfo.email` (shown for `email`) and
+     `https://www.googleapis.com/auth/gmail.send`.
+   - **Test users** (Audience): add every Gmail address that will be connected while the app is in *Testing*.
+4. **OAuth client** (*Clients → Create client*): type **Web application**, and under
+   **Authorized redirect URIs** add exactly:
+   `http://localhost:8000/api/v1/oauth/gmail/callback` (no trailing slash; this also works for Docker,
+   whose backend is published on port 8000). JavaScript origins are not needed (the browser only
+   performs top-level redirects).
+5. Put the client ID and secret into **`backend/.env`** (and the root `.env` for Docker) — never into
+   tracked files, never into the frontend:
+
+```
+GOOGLE_CLIENT_ID=<client id>.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=<client secret>
+GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/oauth/gmail/callback
+FRONTEND_URL=http://localhost:3000
+```
+
+Restart the backend (and the Celery worker, which refreshes tokens too).
+
+### Connecting from the frontend
+
+*Email Accounts → Connect Gmail (OAuth)* → Google's consent screen (in *Testing* mode Google shows
+"Google hasn't verified this app": choose *Continue*) → tick **Send email on your behalf** → you return to
+the Email Accounts page with a success or error banner, and the account appears as **Gmail (OAuth)**.
+Use **Test** to send a test email through the Gmail API. The account can then be selected (or made the
+default) like any other account, for immediate or background (Celery) sending.
+
+### Flow
+
+```
+Browser ──(JWT) GET /api/v1/oauth/gmail/authorize ──▶ backend: random state + PKCE verifier stored
+        ◀─ { authorization_url } (accounts.google.com, scopes openid email gmail.send, S256 challenge)
+Browser ──▶ Google consent ──▶ GET /api/v1/oauth/gmail/callback?code&state   (no JWT)
+backend: consume state once (unknown/expired/reused → error) → exchange code + verifier server-side
+       → require gmail.send scope + verified email → create/update EmailAccount(OAUTH, GMAIL)
+       → 302 http://localhost:3000/email-accounts?oauth=gmail&status=success | error&reason=<code>
+Sending: access token refreshed automatically (≤60 s before expiry, or once after a 401)
+       → MIME message → POST gmail.googleapis.com/gmail/v1/users/me/messages/send
+```
+
+### Security & token storage
+
+* **State**: 32 random bytes, stored only as a SHA-256 hash, bound to the user and company that started
+  the flow, expires after `OAUTH_STATE_TTL_SECONDS` (600), consumed exactly once before the code is
+  exchanged. No IDs travel in the state. **PKCE (S256)** verifier Fernet-encrypted at rest.
+* **Tokens**: access and refresh tokens are Fernet-encrypted (same `ENCRYPTION_KEY` as SMTP passwords);
+  refreshed access tokens are encrypted before storage; API responses expose only `oauth_connected`.
+* **No leaks**: the client secret, codes and tokens are never logged or returned; Uvicorn's access
+  log is filtered so the callback URL is logged as `/callback?[redacted]`; Google's error bodies are
+  not passed on (fixed, safe reason codes instead).
+* **Redirects** go only to the configured `FRONTEND_URL` (no user-controlled redirect); the redirect URI
+  sent to Google is the configured one, which Google matches exactly against the client.
+* A revoked/expired refresh token (`invalid_grant`) fails permanently with "Reconnect Gmail" (never
+  retried); Gmail 429/5xx and network errors are retried like SMTP transient errors.
+* In production, `GOOGLE_REDIRECT_URI` and `FRONTEND_URL` must be `https://` (checked at startup).
+
+### Limitations of Google's Testing mode
+
+* Only the listed **test users** can connect (up to 100); others get "access blocked".
+* Google shows an **"unverified app"** warning; `gmail.send` is a *restricted* scope, so a public launch
+  requires Google's app verification (and a security assessment).
+* **Refresh tokens expire after 7 days** for External apps in Testing: reconnect Gmail when sending
+  starts failing with "Reconnect Gmail".
 
 ## 26. Running the project
 
@@ -698,14 +777,14 @@ downgrade) · an end-to-end workflow test. Tests never need real credentials.
 * JWT in `localStorage` (XSS-readable) — acceptable here; production should use HttpOnly cookies.
 * No refresh tokens or server-side token revocation; logout is client-side.
 * Rate limits are in-memory per process (use Redis for multiple workers).
-* No background queue — a slow SMTP server delays the HTTP response.
+* Background delivery (Celery + Redis) is optional; in the default `sync` mode a slow SMTP server delays the HTTP response.
 * No password reset / email verification flow.
-* Docker files are written and the compose file validated, but images were not built on the
-  development machine (Docker not installed there).
+* Gmail OAuth apps in Google's Testing mode: test users only, "unverified app" warning, refresh tokens
+  expire after 7 days (see section 25a).
 
 ## 33. Future improvements
 
-* OAuth2 (XOAUTH2) mailbox connection for Gmail/Microsoft 365; multiple sender accounts per company.
+* Outlook / Microsoft 365 OAuth (Gmail OAuth is implemented).
 * Background sending queue with scheduled sends and bounce/delivery tracking.
 * Email templates and saved drafts; bulk/personalized campaigns with unsubscribe handling.
 * Team accounts with roles (owner, editor, viewer) per company.

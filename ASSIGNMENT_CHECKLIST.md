@@ -98,7 +98,7 @@ system test notes at the bottom). Paths are relative to the repository root.
 | Retry | Implemented | Retries transient SMTP errors with backoff, `max_send_retries` preference, tested |
 | Templates | Not implemented | Listed under future improvements |
 | Multiple email accounts | Not implemented | One SMTP account per company (documented assumption) |
-| OAuth | Not implemented | Recommended in README §29 (XOAUTH2) |
+| OAuth (Gmail) | Implemented; automated-tested (fake Google server, 34 tests); real Google connection: pending the user's Google Cloud client | `/api/v1/oauth/gmail/authorize` + `/callback`, `services/oauth_service.py`, `services/google_oauth.py`, `services/gmail_delivery.py`, README §25a. Outlook OAuth: not implemented yet |
 | Secret encryption | Implemented | Fernet encryption of SMTP passwords at rest (`core/encryption.py`); KMS recommended for production |
 | Unit tests | Implemented | Security, encryption, sanitizer, signature helpers, providers, SMTP error classification, config |
 | Integration tests | Implemented | API tests through FastAPI + DB for every endpoint, `test_e2e_flow.py`, migration test, PostgreSQL mode |

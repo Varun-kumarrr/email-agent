@@ -22,6 +22,7 @@ from app.services.email_account_service import (
     infer_provider,
     with_provider_hint,
 )
+from app.services.gmail_delivery import is_gmail_oauth, send_via_gmail
 from app.services.smtp_client import SmtpSendError
 
 # Kept so existing imports keep working.
@@ -113,9 +114,12 @@ def run_account_test(db: Session, account: EmailAccount, recipient: str) -> Smtp
     """Send a test email through `account` and record the result on it."""
     now = datetime.now(timezone.utc)
     try:
-        if account.account_type != AccountType.SMTP:
+        if account.account_type == AccountType.SMTP:
+            smtp_client.send_message(build_smtp_credentials(account), build_test_message(account, recipient))
+        elif is_gmail_oauth(account):
+            send_via_gmail(db, account, build_test_message(account, recipient), [])
+        else:
             raise SmtpSendError("not_supported", "Testing this account type is not supported yet.")
-        smtp_client.send_message(build_smtp_credentials(account), build_test_message(account, recipient))
         result = SmtpTestResponse(success=True, message=f"Test email sent to {recipient}.", tested_at=now)
     except SmtpSendError as error:
         error = with_provider_hint(error, account.provider)

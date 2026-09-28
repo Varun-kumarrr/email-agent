@@ -29,6 +29,7 @@ def test_expected_tables_exist():
         "email_preferences",
         "email_history",
         "email_templates",
+        "oauth_states",
     }
 
 

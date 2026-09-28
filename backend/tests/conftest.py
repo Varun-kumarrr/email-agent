@@ -21,6 +21,11 @@ os.environ["LLM_API_KEY"] = ""
 os.environ["SMTP_RETRY_BACKOFF_SECONDS"] = "0"
 os.environ["EMAIL_DELIVERY_MODE"] = "sync"
 os.environ["CELERY_BROKER_URL"] = "memory://"  # never a real Redis in automated tests
+# Never use real Google OAuth credentials in tests (tests set fake ones explicitly).
+os.environ["GOOGLE_CLIENT_ID"] = ""
+os.environ["GOOGLE_CLIENT_SECRET"] = ""
+os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost:8000/api/v1/oauth/gmail/callback"
+os.environ["FRONTEND_URL"] = "http://localhost:3000"
 
 import pytest
 from alembic import command
@@ -116,6 +121,19 @@ def _truncate_all(engine) -> None:
 def engine(_postgres_engine):
     _truncate_all(_postgres_engine)  # every test starts with empty tables
     yield _postgres_engine
+
+
+@pytest.fixture(autouse=True)
+def _no_real_google_requests(monkeypatch):
+    """Any HTTP request to Google fails the test unless a test installs the fake Google server."""
+    import httpx
+
+    import app.services.google_oauth as google_oauth
+
+    def refuse(request):
+        raise AssertionError(f"Unexpected real request to {request.url.host} in tests")
+
+    monkeypatch.setattr(google_oauth, "TRANSPORT", httpx.MockTransport(refuse))
 
 
 @pytest.fixture(autouse=True)

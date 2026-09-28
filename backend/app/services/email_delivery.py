@@ -31,6 +31,7 @@ from app.models import AccountType, EmailAccount, EmailFormat, EmailHistory, Ema
 from app.services import smtp_client
 from app.services.email_account_service import build_smtp_credentials, with_provider_hint
 from app.services.email_composer import build_message, looks_like_html
+from app.services.gmail_delivery import is_gmail_oauth, send_via_gmail
 from app.services.preferences_service import PreferencesService
 from app.services.smtp_client import SmtpSendError
 from app.utils.signature import append_signature
@@ -67,7 +68,7 @@ def retry_delay_seconds(attempts: int) -> float:
     return round(delay * random.uniform(0.9, 1.1), 1)
 
 
-def _send_through_account(account: EmailAccount, record: EmailHistory) -> None:
+def _send_through_account(db: Session, account: EmailAccount, record: EmailHistory) -> None:
     """Build the MIME message from the history row and send it through the account."""
     message = build_message(
         sender_email=account.email_address,
@@ -83,6 +84,9 @@ def _send_through_account(account: EmailAccount, record: EmailHistory) -> None:
     envelope = [record.recipient, *(record.cc or []), *(record.bcc or [])]
     if account.account_type == AccountType.SMTP:
         smtp_client.send_message(build_smtp_credentials(account), message, envelope)
+        return
+    if is_gmail_oauth(account):
+        send_via_gmail(db, account, message, list(record.bcc or []))
         return
     raise SmtpSendError("not_supported", "Sending through this account type is not supported yet.")
 
@@ -107,7 +111,7 @@ def attempt_delivery(db: Session, history_id: uuid.UUID) -> DeliveryOutcome:
             raise SmtpSendError("account_unavailable", "The email account used for this email no longer exists.")
         if not account.is_active:
             raise SmtpSendError("account_inactive", "The email account used for this email is inactive.")
-        _send_through_account(account, record)
+        _send_through_account(db, account, record)
     except SmtpSendError as error:
         if account is not None:
             error = with_provider_hint(error, account.provider)

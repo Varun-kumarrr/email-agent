@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     email_accounts,
     email_config,
     emails,
+    oauth,
     preferences,
     signature,
     templates,
@@ -23,3 +24,4 @@ api_router.include_router(preferences.router)
 api_router.include_router(agent.router)
 api_router.include_router(emails.router)
 api_router.include_router(templates.router)
+api_router.include_router(oauth.router)

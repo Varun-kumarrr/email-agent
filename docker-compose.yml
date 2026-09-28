@@ -60,6 +60,12 @@ services:
       LLM_FALLBACK_TO_MOCK: ${LLM_FALLBACK_TO_MOCK:-true}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       SMTP_ALLOW_PRIVATE_HOSTS: ${SMTP_ALLOW_PRIVATE_HOSTS:-false}
+      # Gmail OAuth (optional; values come from the git-ignored root .env). The redirect URI is the
+      # host-visible backend URL, which the published port 8000 maps onto this container.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/v1/oauth/gmail/callback}
     ports:
       - "8000:8000"
     healthcheck:

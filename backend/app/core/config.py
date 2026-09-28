@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     # Keep True only for local development (e.g. a local test mail server).
     SMTP_ALLOW_PRIVATE_HOSTS: bool = True
 
+    # Frontend base URL: where the browser is sent back after an OAuth connection.
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # Gmail OAuth (Google Cloud "Web application" OAuth client). Empty = Gmail OAuth disabled.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""))
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/oauth/gmail/callback"
+    OAUTH_STATE_TTL_SECONDS: int = 600
+
     # CORS — comma separated list of allowed frontend origins
     ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
@@ -90,8 +99,16 @@ def validate_production_settings(s: Settings) -> None:
         problems.append("ALLOWED_ORIGINS must list explicit frontend origins")
     if s.SMTP_ALLOW_PRIVATE_HOSTS:
         problems.append("SMTP_ALLOW_PRIVATE_HOSTS must be false")
+    if s.GOOGLE_CLIENT_ID and not s.GOOGLE_REDIRECT_URI.startswith("https://"):
+        problems.append("GOOGLE_REDIRECT_URI must use https")
+    if not s.FRONTEND_URL.startswith("https://"):
+        problems.append("FRONTEND_URL must use https")
     if problems:
         raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
+
+
+def google_oauth_configured(s: Settings) -> bool:
+    return bool(s.GOOGLE_CLIENT_ID.strip() and s.GOOGLE_CLIENT_SECRET.get_secret_value().strip())
 
 
 def celery_broker_url(s: Settings) -> str:
