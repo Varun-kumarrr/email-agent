@@ -47,8 +47,11 @@ class MockLLMProvider(LLMProvider):
         paragraphs.append("Would you be open to a short call to see whether this could help you?")
 
         body = "\n\n".join(paragraphs)
-        if ctx.get("include_signature_in_body") and ctx.get("signature"):
+        policy = ctx.get("signature_policy", "none")
+        if policy == "include_in_body" and ctx.get("signature"):
             body += "\n\n" + ctx["signature"]
-        elif not ctx.get("signature_appended_on_send"):
+        elif policy == "appended_on_send":
+            body += "\n\nBest regards,"  # the saved signature is appended when sending
+        else:
             body += f"\n\nBest regards,\n{sender}"
         return GeneratedEmail(subject=subject, body=body)

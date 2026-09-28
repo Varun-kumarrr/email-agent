@@ -7,6 +7,23 @@ from typing import Any
 
 from app.models import Company, EmailConfiguration, EmailPreferences, EmailSignature
 
+# How the saved signature relates to the generated body:
+SIGNATURE_APPENDED_ON_SEND = "appended_on_send"  # enabled + append automatically: added when sending
+SIGNATURE_IN_BODY = "include_in_body"  # enabled, manual: the draft ends with it so the user can edit it
+SIGNATURE_NONE = "none"  # no (enabled) signature: close with the sender name
+
+
+def signature_policy(signature: EmailSignature | None) -> str:
+    if signature is None or not signature.enabled:
+        return SIGNATURE_NONE
+    return SIGNATURE_APPENDED_ON_SEND if signature.append_automatically else SIGNATURE_IN_BODY
+
+
+def resolve_sender_name(
+    company: Company, config: EmailConfiguration | None, preferences: EmailPreferences
+) -> str | None:
+    return preferences.sender_name or (config.sender_name if config else None) or company.contact_person
+
 
 def build_company_context(
     company: Company,
@@ -15,7 +32,7 @@ def build_company_context(
     preferences: EmailPreferences,
     signature: EmailSignature | None,
 ) -> dict[str, Any]:
-    sender_name = preferences.sender_name or (config.sender_name if config else None) or company.contact_person
+    policy = signature_policy(signature)
     return {
         "company": {
             "name": company.name,
@@ -36,7 +53,9 @@ def build_company_context(
             },
             "social_links": [{"platform": l.platform, "url": l.url} for l in company.social_links],
         },
-        "sender_name": sender_name,
+        "sender_name": resolve_sender_name(company, config, preferences),
         "sender_email": config.email if config else company.contact_email,
-        "signature": signature.signature_text if signature and signature.enabled else None,
+        "reply_to": preferences.reply_to or (config.reply_to if config else None),
+        "signature": signature.signature_text if policy != SIGNATURE_NONE else None,
+        "signature_policy": policy,
     }

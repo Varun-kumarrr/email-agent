@@ -1,5 +1,9 @@
-"""The email agent: loads the authenticated company's context, asks the LLM for
-an email and returns it for the user to review. It never sends anything."""
+"""The email agent.
+
+Flow: load company -> profile -> signature -> preferences -> build context ->
+generate -> validate -> return an editable draft. It never sends anything;
+the user reviews/edits the draft and sends it via POST /emails/send.
+"""
 
 import logging
 
@@ -10,13 +14,14 @@ from app.core.exceptions import ServiceUnavailableError
 from app.models import Company
 from app.repositories.company_repository import CompanyRepository
 from app.schemas.agent import GenerateEmailRequest, GenerateEmailResponse
-from app.services.agent.context import build_company_context
+from app.services.agent.context import SIGNATURE_APPENDED_ON_SEND, build_company_context
 from app.services.agent.output_guard import guard_output
 from app.services.agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.email_config_service import EmailConfigService
-from app.services.llm import LLMError, LLMProvider, LLMRequest, MockLLMProvider, get_llm_provider
+from app.services.llm import GeneratedEmail, LLMError, LLMProvider, LLMRequest, MockLLMProvider, get_llm_provider
 from app.services.preferences_service import PreferencesService
 from app.services.signature_service import SignatureService
+from app.utils.signature import strip_trailing_signature
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +31,18 @@ class EmailAgentService:
         self.db = db
         self.provider = provider or get_llm_provider()
 
-    def build_request(self, company: Company, data: GenerateEmailRequest) -> LLMRequest:
-        # Reload with all child collections for this company only.
+    def generate(self, company: Company, data: GenerateEmailRequest) -> GenerateEmailResponse:
+        # 1-4. Load the company (with all profile collections), signature and preferences.
         company = CompanyRepository(self.db).get_by_user_id(company.user_id)
+        preferences = PreferencesService(self.db).get(company)
+        signature = SignatureService(self.db).find(company)
+
+        # 5. Build context.
         context = build_company_context(
             company,
             config=EmailConfigService(self.db).find(company),
-            preferences=PreferencesService(self.db).get(company),
-            signature=SignatureService(self.db).find(company),
+            preferences=preferences,
+            signature=signature,
         )
         email_request = {
             "recipient_name": data.recipient_name,
@@ -42,29 +51,42 @@ class EmailAgentService:
             "tone": data.tone.value,
             "additional_instructions": data.additional_instructions,
         }
-        user_prompt = build_user_prompt(context, email_request)
-        mock_context = {
-            **context,
-            "recipient_name": data.recipient_name,
-            "purpose": data.purpose,
-            "tone": data.tone.value,
-        }
-        return LLMRequest(system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt, context=mock_context)
+        request = LLMRequest(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=build_user_prompt(context, email_request),
+            context={**context, **email_request},
+        )
 
-    def generate(self, company: Company, data: GenerateEmailRequest) -> GenerateEmailResponse:
-        request = self.build_request(company, data)
+        # 6. Generate (with fallback) and validate.
+        email, provider_name, fallback_used, warning = self._generate(request)
+
+        # 7. When the signature is appended on send, make sure the draft doesn't
+        #    already contain it, so the recipient never sees it twice.
+        policy = context["signature_policy"]
+        if policy == SIGNATURE_APPENDED_ON_SEND and signature is not None:
+            email = GeneratedEmail(email.subject, strip_trailing_signature(email.body, signature.signature_text))
+
+        # 8. Return the editable draft.
+        return GenerateEmailResponse(
+            subject=email.subject,
+            body=email.body,
+            recipient_email=data.recipient_email,
+            provider=provider_name,
+            fallback_used=fallback_used,
+            warning=warning,
+            signature_policy=policy,
+            signature_preview=signature.signature_text if policy == SIGNATURE_APPENDED_ON_SEND else None,
+            suggested_format=preferences.default_format,
+            suggested_cc=list(preferences.default_cc or []),
+            suggested_bcc=list(preferences.default_bcc or []),
+        )
+
+    def _generate(self, request: LLMRequest) -> tuple[GeneratedEmail, str, bool, str | None]:
         try:
-            email = guard_output(self.provider.generate_email(request))
-            return GenerateEmailResponse(subject=email.subject, body=email.body, provider=self.provider.name)
+            return guard_output(self.provider.generate_email(request)), self.provider.name, False, None
         except LLMError as error:
             logger.warning("LLM provider %s failed code=%s", self.provider.name, error.code)
             if not settings.LLM_FALLBACK_TO_MOCK or isinstance(self.provider, MockLLMProvider):
                 raise ServiceUnavailableError(error.message, details={"code": error.code})
             email = guard_output(MockLLMProvider().generate_email(request))
-            return GenerateEmailResponse(
-                subject=email.subject,
-                body=email.body,
-                provider="mock",
-                fallback_used=True,
-                warning=f"{error.message} A template-based draft was generated instead.",
-            )
+            return email, "mock", True, f"{error.message} A template-based draft was generated instead."
