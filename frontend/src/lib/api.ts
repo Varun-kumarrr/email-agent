@@ -92,7 +92,10 @@ async function request<T>(path: string, { method = "GET", body, auth = true }: O
 
   if (!response.ok) {
     const err = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)?.error;
-    const message = err?.message || FRIENDLY_MESSAGES[response.status] || `Request failed (${response.status})`;
+    const message =
+      response.status === 422
+        ? FRIENDLY_MESSAGES[422]
+        : err?.message || FRIENDLY_MESSAGES[response.status] || `Request failed (${response.status})`;
     if (response.status === 401 && auth) {
       clearSession();
       if (typeof window !== "undefined") window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
