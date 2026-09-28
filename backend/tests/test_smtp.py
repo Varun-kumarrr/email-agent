@@ -65,7 +65,7 @@ def test_none_mode_uses_plain_smtp(client, configured, smtp):
         ("connect", TimeoutError("timed out"), "timeout"),
         ("starttls", ssl.SSLError("wrong version number"), "tls_failed"),
         ("connect", ssl.SSLCertVerificationError("certificate verify failed"), "tls_certificate"),
-        ("starttls", smtplib.SMTPNotSupportedError("STARTTLS extension not supported"), "starttls_unsupported"),
+        ("starttls", smtplib.SMTPNotSupportedError("STARTTLS extension not supported"), "feature_unsupported"),
         ("send", smtplib.SMTPRecipientsRefused({"x@example.com": (550, b"no such user")}), "recipient_refused"),
         ("send", smtplib.SMTPDataError(554, b"rejected"), "smtp_error"),
     ],
@@ -112,3 +112,10 @@ def test_transient_classification():
     assert classify_error(smtplib.SMTPServerDisconnected()).transient is True
     assert classify_error(smtplib.SMTPDataError(451, b"try later")).transient is True
     assert classify_error(smtplib.SMTPAuthenticationError(535, b"no")).transient is False
+
+
+def test_relay_without_auth_sends_without_login(client, configured, smtp):
+    smtp.extensions = {"starttls"}  # server does not advertise AUTH
+    body = client.post(TEST, json={"recipient": "c@example.com"}, headers=configured).json()
+    assert body["success"] is True
+    assert smtp.last.logged_in_as is None

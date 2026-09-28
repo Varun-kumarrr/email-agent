@@ -10,6 +10,7 @@ class FakeSMTPController:
         self.connections: list["FakeSMTP"] = []
         self.sent: list = []
         self.envelopes: list = []
+        self.extensions: set[str] = {"auth", "starttls"}
         self.fail_on: str | None = None  # "connect" | "starttls" | "login" | "send"
         self.error: BaseException | None = None
         self.fail_times: int | None = None  # fail only the first N attempts (for retry tests)
@@ -36,6 +37,12 @@ class FakeSMTPController:
 
             def ehlo(self):
                 return (250, b"ok")
+
+            def ehlo_or_helo_if_needed(self):
+                return None
+
+            def has_extn(self, name):
+                return name.lower() in controller.extensions
 
             def starttls(self, context=None):
                 controller.maybe_fail("starttls")

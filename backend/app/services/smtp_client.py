@@ -55,7 +55,9 @@ def classify_error(exc: BaseException) -> SmtpSendError:
         )
     if isinstance(exc, smtplib.SMTPNotSupportedError):
         return SmtpSendError(
-            "starttls_unsupported", "The SMTP server does not support this security mode (e.g. STARTTLS)."
+            "feature_unsupported",
+            "The SMTP server does not support a required feature (for example STARTTLS). "
+            "Check the security type and port.",
         )
     if isinstance(exc, smtplib.SMTPServerDisconnected):
         return SmtpSendError("disconnected", "The SMTP server closed the connection unexpectedly.", transient=True)
@@ -116,8 +118,14 @@ def send_message(
     server = None
     try:
         server = _open_connection(creds, timeout or settings.SMTP_TIMEOUT_SECONDS)
+        server.ehlo_or_helo_if_needed()
         if creds.username and creds.password:
-            server.login(creds.username, creds.password)
+            if server.has_extn("auth"):
+                server.login(creds.username, creds.password)
+            else:
+                # Relays that don't offer AUTH (internal port-25 relays, local dev servers).
+                # If the server actually requires auth it will reject the message below.
+                logger.info("SMTP server host=%s does not advertise AUTH; sending without login", creds.host)
         server.send_message(message, to_addrs=recipients)
     except Exception as exc:
         error = classify_error(exc)

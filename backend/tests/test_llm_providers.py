@@ -99,3 +99,13 @@ def test_gemini_malformed_response():
     with pytest.raises(LLMError) as info:
         _gemini(handler).generate_email(LLMRequest("s", "u"))
     assert info.value.code == "llm_bad_response"
+
+
+def test_mock_introduces_contact_person_not_team_sender_name():
+    context = {
+        **CONTEXT,
+        "company": {**CONTEXT["company"], "contact": {"person": "Anjali Sharma"}},
+        "sender_name": "ABC Sales Team",
+    }
+    email = MockLLMProvider().generate_email(LLMRequest("s", "u", context=context))
+    assert "I'm Anjali Sharma from ABC Technologies." in email.body

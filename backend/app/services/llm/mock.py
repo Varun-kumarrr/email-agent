@@ -34,8 +34,9 @@ class MockLLMProvider(LLMProvider):
         values = [v["statement"] for v in company.get("value_propositions", []) if v.get("statement")]
         recipient = ctx.get("recipient_name") or "there"
         tone = ctx.get("tone", "professional")
-        sender = ctx.get("sender_name") or company.get("contact_person")
-        person = company.get("contact_person") or ctx.get("sender_name")  # who is "I" in the email
+        contact_person = (company.get("contact") or {}).get("person")
+        sender = ctx.get("sender_name") or contact_person
+        person = contact_person or ctx.get("sender_name")  # who is "I" in the email
 
         if services and customers:
             subject = f"{company_name}: {services[0]} for {customers[0].lower()}"
