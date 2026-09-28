@@ -27,6 +27,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
 from app.core.config import settings
+from app.core.rate_limit import ALL_LIMITERS
 from app.db.base import Base
 from app.db.database import get_db
 from app.main import app
@@ -42,6 +43,13 @@ def _checked_postgres_url(url: str) -> str:
     if parsed.render_as_string(hide_password=False) == make_url(settings.DATABASE_URL).render_as_string(hide_password=False):
         raise RuntimeError("TEST_DATABASE_URL must differ from DATABASE_URL")
     return url
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    for limiter in ALL_LIMITERS:
+        limiter.reset()
+    yield
 
 
 @pytest.fixture(scope="session")

@@ -5,6 +5,7 @@ Credentials are passed per call from the company's own configuration; there is
 no global/system SMTP account anywhere in the application.
 """
 
+import ipaddress
 import logging
 import smtplib
 import socket
@@ -91,7 +92,35 @@ def classify_error(exc: BaseException) -> SmtpSendError:
     return SmtpSendError("unknown_error", "Unexpected error while sending email.")
 
 
+def ensure_public_host(host: str, port: int) -> None:
+    """Refuse hosts that resolve to private, loopback, link-local or reserved addresses.
+
+    Stops users from pointing "their SMTP server" at internal services (SSRF).
+    Note: a hostile DNS server could still change the answer between this check
+    and the connection (DNS rebinding); network egress rules are the real fix.
+    """
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise classify_error(exc) from None
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_multicast
+            or address.is_unspecified
+        ):
+            raise SmtpSendError(
+                "host_not_allowed", "This SMTP host resolves to a private or internal address, which is not allowed."
+            )
+
+
 def _open_connection(creds: SmtpCredentials, timeout: float) -> smtplib.SMTP:
+    if not settings.SMTP_ALLOW_PRIVATE_HOSTS:
+        ensure_public_host(creds.host, creds.port)
     context = ssl.create_default_context()  # verifies certificates and host names
     if creds.security_type == SecurityType.SSL_TLS:
         return smtplib.SMTP_SSL(creds.host, creds.port, timeout=timeout, context=context)

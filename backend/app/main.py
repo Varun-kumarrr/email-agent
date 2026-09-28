@@ -1,12 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
-from app.core.config import settings
+from app.core.config import settings, validate_production_settings
 from app.core.error_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 
 configure_logging(settings.LOG_LEVEL)
+validate_production_settings(settings)
 
 DESCRIPTION = """
 Backend for the **Email Agent — Profile & Email Configuration Module**.
@@ -51,6 +52,25 @@ app = FastAPI(
     openapi_tags=TAGS,
     swagger_ui_parameters={"persistAuthorization": True},
 )
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if request.url.path.startswith("/api/"):
+        # API responses can contain personal data: never cache them.
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
 
 # Only the configured frontend origins may call the API from a browser.
 # A wildcard is never used: origins come from ALLOWED_ORIGINS.

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     SQL_ECHO: bool = False
 
     # Authentication
-    SECRET_KEY: SecretStr = Field(default=SecretStr("change-me-in-your-local-env-file"))
+    SECRET_KEY: SecretStr = Field(default=SecretStr("change-me-in-your-local-env-file"))  # DEFAULT_SECRET_KEY
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # SMTP
     SMTP_TIMEOUT_SECONDS: float = 15.0
     SMTP_RETRY_BACKOFF_SECONDS: float = 1.0
+    # When False, SMTP hosts resolving to private/loopback/link-local addresses are
+    # refused (prevents using the server to probe internal networks - SSRF).
+    # Keep True only for local development (e.g. a local test mail server).
+    SMTP_ALLOW_PRIVATE_HOSTS: bool = True
 
     # CORS — comma separated list of allowed frontend origins
     ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
@@ -58,6 +62,27 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+
+DEFAULT_SECRET_KEY = "change-me-in-your-local-env-file"
+
+
+def validate_production_settings(s: Settings) -> None:
+    """Refuse to start in production with unsafe configuration."""
+    if s.ENVIRONMENT.lower() != "production":
+        return
+    problems = []
+    secret = s.SECRET_KEY.get_secret_value()
+    if secret == DEFAULT_SECRET_KEY or len(secret) < 32:
+        problems.append("SECRET_KEY must be a random value of at least 32 characters")
+    if not s.ENCRYPTION_KEY.get_secret_value():
+        problems.append("ENCRYPTION_KEY must be set (Fernet key)")
+    if "*" in s.ALLOWED_ORIGINS or not s.ALLOWED_ORIGINS:
+        problems.append("ALLOWED_ORIGINS must list explicit frontend origins")
+    if s.SMTP_ALLOW_PRIVATE_HOSTS:
+        problems.append("SMTP_ALLOW_PRIVATE_HOSTS must be false")
+    if problems:
+        raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
 
 
 @lru_cache
