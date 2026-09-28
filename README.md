@@ -186,6 +186,19 @@ Enums (`security_type`, `email_format`, `status`) are stored as VARCHAR + CHECK 
 and easy to extend). Lists of CC/BCC use JSON columns. The schema is created by **Alembic**
 (`backend/alembic/versions/0001_initial_schema.py`); a test verifies the migration matches the models.
 
+### Design decisions
+
+* **Contact information lives on the company profile.** Contact person, email, phone and address
+  are columns on `companies` because the system supports one primary contact per company.
+* **Deliberately simpler than a separate `company_contacts` table.** With exactly one contact per
+  company, a separate table would add a join and more code without adding capability.
+* **Easy to extend later.** If multiple contacts per company are needed, a `company_contacts`
+  table (one company → many contacts) can be added with a new Alembic migration.
+* **Signature and sending preferences are company-level configuration.** The assignment calls for
+  one reusable signature and one set of preferences per company, so `email_signatures` and
+  `email_preferences` are one-to-one with `companies` (enforced by unique foreign keys), alongside
+  the company's `email_configurations` row.
+
 ## 7. Authentication
 
 * `POST /api/v1/auth/register` — `{name, email, password}`; email normalized to lowercase;
