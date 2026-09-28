@@ -16,7 +16,12 @@ from app.models import AccountType, Company, EmailAccount
 from app.schemas.email_account import EmailAccountCreate, EmailAccountUpdate
 from app.schemas.email_config import EmailConfigCreate, EmailConfigResponse, EmailConfigUpdate, SmtpTestResponse
 from app.services import smtp_client
-from app.services.email_account_service import EmailAccountService, build_smtp_credentials, infer_provider
+from app.services.email_account_service import (
+    EmailAccountService,
+    build_smtp_credentials,
+    infer_provider,
+    with_provider_hint,
+)
 from app.services.smtp_client import SmtpSendError
 
 # Kept so existing imports keep working.
@@ -113,6 +118,7 @@ def run_account_test(db: Session, account: EmailAccount, recipient: str) -> Smtp
         smtp_client.send_message(build_smtp_credentials(account), build_test_message(account, recipient))
         result = SmtpTestResponse(success=True, message=f"Test email sent to {recipient}.", tested_at=now)
     except SmtpSendError as error:
+        error = with_provider_hint(error, account.provider)
         result = SmtpTestResponse(success=False, message=error.message, error_code=error.code, tested_at=now)
 
     account.last_tested_at = now

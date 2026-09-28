@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import AccountType, EmailAccount, EmailFormat, EmailHistory, EmailStatus
 from app.services import smtp_client
-from app.services.email_account_service import build_smtp_credentials
+from app.services.email_account_service import build_smtp_credentials, with_provider_hint
 from app.services.email_composer import build_message, looks_like_html
 from app.services.preferences_service import PreferencesService
 from app.services.smtp_client import SmtpSendError
@@ -109,6 +109,8 @@ def attempt_delivery(db: Session, history_id: uuid.UUID) -> DeliveryOutcome:
             raise SmtpSendError("account_inactive", "The email account used for this email is inactive.")
         _send_through_account(account, record)
     except SmtpSendError as error:
+        if account is not None:
+            error = with_provider_hint(error, account.provider)
         max_retries = PreferencesService(db).get_for_company_id(record.company_id).max_send_retries
         retry = error.transient and record.attempts <= max_retries
         record.status = EmailStatus.RETRYING if retry else EmailStatus.FAILED

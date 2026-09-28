@@ -28,6 +28,39 @@ def infer_provider(smtp_host: str) -> EmailProvider:
     return EmailProvider.GENERIC
 
 
+# Provider-specific guidance for the most common setup mistakes (safe, static text).
+_PROVIDER_HINTS: dict[tuple[EmailProvider, str], str] = {
+    (EmailProvider.GMAIL, "auth_failed"): (
+        "Gmail rejected the login. Use a 16-character Google App Password (Google Account > Security > "
+        "2-Step Verification > App passwords), not your normal Gmail password."
+    ),
+    (EmailProvider.OUTLOOK, "auth_failed"): (
+        "Microsoft rejected the login. SMTP AUTH may be disabled for this mailbox (Microsoft 365 admin "
+        "setting), or an app password is required when multi-factor authentication is on. "
+        "Connecting with Outlook OAuth avoids passwords entirely."
+    ),
+    (EmailProvider.GMAIL, "sender_refused"): (
+        "Gmail refused the sender address. The email address must be the Gmail account itself "
+        "or an alias verified in Gmail settings."
+    ),
+}
+
+
+def with_provider_hint(error: SmtpSendError, provider: EmailProvider) -> SmtpSendError:
+    """Replace a generic error message with provider-specific guidance when we have one."""
+    hint = _PROVIDER_HINTS.get((provider, error.code))
+    if hint is None:
+        return error
+    return SmtpSendError(error.code, hint, transient=error.transient)
+
+
+def normalize_smtp_password(provider: EmailProvider, password: str) -> str:
+    """Google shows App Passwords as 'abcd efgh ijkl mnop'; the spaces are not part of it."""
+    if provider == EmailProvider.GMAIL:
+        return "".join(password.split())
+    return password
+
+
 def to_response(account: EmailAccount) -> EmailAccountResponse:
     return EmailAccountResponse(
         id=account.id,
@@ -144,7 +177,7 @@ class EmailAccountService:
             smtp_host=data.smtp_host,
             smtp_port=data.smtp_port,
             smtp_username=data.smtp_username,
-            encrypted_smtp_password=encrypt_secret(data.password.get_secret_value()),
+            encrypted_smtp_password=encrypt_secret(normalize_smtp_password(data.provider, data.password.get_secret_value())),
             security_type=data.security_type,
             is_active=data.is_active,
             is_default=False,
@@ -179,7 +212,9 @@ class EmailAccountService:
         for field, value in changes.items():
             setattr(account, field, value)
         if password is not None:
-            account.encrypted_smtp_password = encrypt_secret(password.get_secret_value())
+            account.encrypted_smtp_password = encrypt_secret(
+                normalize_smtp_password(account.provider, password.get_secret_value())
+            )
         if connection_changed or password is not None:
             # A previous successful test no longer proves the new settings work.
             account.last_tested_at = None
