@@ -1,7 +1,12 @@
 """Shared test fixtures.
 
-Tests run against an isolated in-memory SQLite database (schema built from the
-models), so they never touch a real PostgreSQL database and need no credentials.
+By default tests run against an isolated in-memory SQLite database (schema built
+from the models), so they need no credentials and never touch the application
+database. Set TEST_DATABASE_URL to a *separate* PostgreSQL database whose name
+ends in "_test" to run the same suite against PostgreSQL:
+
+    TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/email_agent_test pytest
+
 SMTP and the LLM are always mocked.
 """
 
@@ -16,18 +21,52 @@ os.environ["SMTP_RETRY_BACKOFF_SECONDS"] = "0"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
+from app.core.config import settings
 from app.db.base import Base
 from app.db.database import get_db
 from app.main import app
 
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+
+
+def _checked_postgres_url(url: str) -> str:
+    """Refuse anything that could be the real application database."""
+    parsed = make_url(url)
+    if not (parsed.database or "").endswith("_test"):
+        raise RuntimeError("TEST_DATABASE_URL must point to a database whose name ends with '_test'")
+    if parsed.render_as_string(hide_password=False) == make_url(settings.DATABASE_URL).render_as_string(hide_password=False):
+        raise RuntimeError("TEST_DATABASE_URL must differ from DATABASE_URL")
+    return url
+
+
+@pytest.fixture(scope="session")
+def _postgres_engine():
+    if not TEST_DATABASE_URL:
+        yield None
+        return
+    engine = create_engine(_checked_postgres_url(TEST_DATABASE_URL), hide_parameters=True)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    yield engine
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
 
 @pytest.fixture()
-def engine():
+def engine(_postgres_engine):
+    if _postgres_engine is not None:
+        # Empty every table before each test (children first).
+        with _postgres_engine.begin() as connection:
+            for table in reversed(Base.metadata.sorted_tables):
+                connection.execute(table.delete())
+        yield _postgres_engine
+        return
+
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )

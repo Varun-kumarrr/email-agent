@@ -85,7 +85,7 @@ def test_token_signed_with_other_secret_rejected(client):
     register_and_login(client)
     token = jwt.encode(
         {"sub": str(uuid.uuid4()), "exp": datetime.now(timezone.utc) + timedelta(minutes=5), "type": "access"},
-        "attacker-secret",
+        "attacker-controlled-secret-that-is-long-enough-for-hs256",
         algorithm="HS256",
     )
     assert client.get(ME, headers={"Authorization": f"Bearer {token}"}).status_code == 401
