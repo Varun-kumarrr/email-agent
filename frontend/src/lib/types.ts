@@ -132,6 +132,38 @@ export interface EmailAccountCreate {
 
 export type EmailAccountUpdate = Partial<Omit<EmailAccountCreate, "provider" | "is_default">>;
 
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  subject_template: string;
+  body_template: string;
+  content_type: EmailFormat;
+  variables: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailTemplateInput {
+  name: string;
+  description: string | null;
+  category: string | null;
+  subject_template: string;
+  body_template: string;
+  content_type: EmailFormat;
+  is_active: boolean;
+}
+
+export interface TemplatePreview {
+  subject: string;
+  body: string;
+  content_type: EmailFormat;
+  variables_used: Record<string, string>;
+  missing_variables: string[];
+}
+
 export interface SignatureInput {
   signature_text: string;
   enabled: boolean;
@@ -170,6 +202,8 @@ export interface GenerateEmailInput {
   tone: Tone;
   additional_instructions: string | null;
   email_account_id?: string | null;
+  template_id?: string | null;
+  template_variables?: Record<string, string>;
 }
 
 export interface GeneratedEmail {
@@ -184,6 +218,8 @@ export interface GeneratedEmail {
   suggested_format: EmailFormat;
   suggested_cc: string[];
   suggested_bcc: string[];
+  template_id: string | null;
+  missing_template_variables: string[];
 }
 
 export interface SendEmailInput {

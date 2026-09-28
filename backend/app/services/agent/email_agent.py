@@ -11,17 +11,20 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableError
-from app.models import Company
+from app.models import Company, EmailFormat
 from app.repositories.company_repository import CompanyRepository
 from app.schemas.agent import GenerateEmailRequest, GenerateEmailResponse
 from app.services.agent.context import SIGNATURE_APPENDED_ON_SEND, build_company_context
 from app.services.agent.output_guard import guard_output
 from app.services.agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.email_account_service import EmailAccountService
+from app.services.email_composer import html_to_text
 from app.services.llm import GeneratedEmail, LLMError, LLMProvider, LLMRequest, MockLLMProvider, get_llm_provider
 from app.services.preferences_service import PreferencesService
 from app.services.signature_service import SignatureService
+from app.services.template_service import TemplateService, builtin_values, render_template
 from app.utils.signature import strip_trailing_signature
+from app.utils.template_render import strip_placeholders
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +40,11 @@ class EmailAgentService:
         preferences = PreferencesService(self.db).get(company)
         signature = SignatureService(self.db).find(company)
 
+        account = self._sender_account(company, data)
+        template = TemplateService(self.db).get_active(company, data.template_id) if data.template_id else None
+
         # 5. Build context.
-        context = build_company_context(
-            company,
-            account=self._sender_account(company, data),
-            preferences=preferences,
-            signature=signature,
-        )
+        context = build_company_context(company, account=account, preferences=preferences, signature=signature)
         email_request = {
             "recipient_name": data.recipient_name,
             "recipient_email": data.recipient_email,
@@ -51,6 +52,26 @@ class EmailAgentService:
             "tone": data.tone.value,
             "additional_instructions": data.additional_instructions,
         }
+        missing_variables: list[str] = []
+        if template is not None:
+            # 5b. Render the optional template with built-in + user values; it goes to the model as data.
+            values = builtin_values(
+                company,
+                account,
+                sender_name=context["sender_name"],
+                recipient_name=data.recipient_name,
+                recipient_email=str(data.recipient_email),
+            )
+            values.update({k: v for k, v in data.template_variables.items() if v.strip()})
+            subject, body, missing_variables = render_template(template, values)
+            if template.content_type == EmailFormat.HTML:
+                body = html_to_text(body)  # the model writes plain text; HTML is produced at send time
+            email_request["template"] = {
+                "name": template.name,
+                "subject": subject,
+                "body": body,
+                "unfilled_placeholders": missing_variables,
+            }
         request = LLMRequest(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=build_user_prompt(context, email_request),
@@ -59,6 +80,8 @@ class EmailAgentService:
 
         # 6. Generate (with fallback) and validate.
         email, provider_name, fallback_used, warning = self._generate(request)
+        if template is not None:  # never hand the user leftover {{ placeholders }}
+            email = GeneratedEmail(strip_placeholders(email.subject) or email.subject, strip_placeholders(email.body))
 
         # 7. When the signature is appended on send, make sure the draft doesn't
         #    already contain it, so the recipient never sees it twice.
@@ -76,9 +99,11 @@ class EmailAgentService:
             warning=warning,
             signature_policy=policy,
             signature_preview=signature.signature_text if policy == SIGNATURE_APPENDED_ON_SEND else None,
-            suggested_format=preferences.default_format,
+            suggested_format=template.content_type if template else preferences.default_format,
             suggested_cc=list(preferences.default_cc or []),
             suggested_bcc=list(preferences.default_bcc or []),
+            template_id=template.id if template else None,
+            missing_template_variables=missing_variables,
         )
 
     def _sender_account(self, company: Company, data: GenerateEmailRequest):

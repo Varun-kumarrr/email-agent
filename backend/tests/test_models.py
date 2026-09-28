@@ -28,6 +28,7 @@ def test_expected_tables_exist():
         "email_signatures",
         "email_preferences",
         "email_history",
+        "email_templates",
     }
 
 

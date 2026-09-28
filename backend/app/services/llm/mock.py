@@ -7,6 +7,7 @@ labels drafts from this provider so the user knows to edit them.
 """
 
 from app.services.llm.base import GeneratedEmail, LLMProvider, LLMRequest
+from app.utils.template_render import strip_placeholders
 
 
 def _join(items: list[str]) -> str:
@@ -27,6 +28,8 @@ class MockLLMProvider(LLMProvider):
 
     def generate_email(self, request: LLMRequest) -> GeneratedEmail:
         ctx = request.context
+        if ctx.get("template"):
+            return self._from_template(ctx)
         company = ctx.get("company", {})
         company_name = company.get("name") or "our company"
         services = [s["name"] for s in company.get("services", []) if s.get("name")]
@@ -74,4 +77,14 @@ class MockLLMProvider(LLMProvider):
                 body += "\n\nBest regards,"
         else:
             body += "\n\nBest regards," + (f"\n{sender}" if sender else f"\n{company_name}")
+        return GeneratedEmail(subject=subject, body=body)
+
+    @staticmethod
+    def _from_template(ctx: dict) -> GeneratedEmail:
+        """With a template, the (already rendered) template *is* the draft; unfilled placeholders are removed."""
+        template = ctx["template"]
+        subject = strip_placeholders(template["subject"]) or "Hello"
+        body = strip_placeholders(template["body"])
+        if ctx.get("signature_policy") == "include_in_body" and ctx.get("signature"):
+            body += "\n\n" + ctx["signature"]
         return GeneratedEmail(subject=subject, body=body)

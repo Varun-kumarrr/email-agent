@@ -14,6 +14,8 @@ import type {
   EmailConfig,
   EmailConfigInput,
   EmailHistoryPage,
+  EmailTemplate,
+  EmailTemplateInput,
   EmailStatus,
   FieldError,
   GeneratedEmail,
@@ -25,6 +27,7 @@ import type {
   Signature,
   SignatureInput,
   SmtpTestResult,
+  TemplatePreview,
   TokenResponse,
   User,
 } from "./types";
@@ -136,6 +139,19 @@ export const api = {
       method: "POST",
       body: { recipient },
     }),
+
+  // Email templates
+  listTemplates: (activeOnly = false) =>
+    request<EmailTemplate[]>(`/api/v1/email-templates${activeOnly ? "?active_only=true" : ""}`),
+  builtinTemplateVariables: () => request<string[]>("/api/v1/email-templates/builtin-variables"),
+  createTemplate: (data: EmailTemplateInput) =>
+    request<EmailTemplate>("/api/v1/email-templates", { method: "POST", body: data }),
+  updateTemplate: (id: string, data: Partial<EmailTemplateInput>) =>
+    request<EmailTemplate>(`/api/v1/email-templates/${encodeURIComponent(id)}`, { method: "PATCH", body: data }),
+  deleteTemplate: (id: string) =>
+    request<void>(`/api/v1/email-templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  previewTemplate: (id: string, data: { variables: Record<string, string>; recipient_name?: string | null }) =>
+    request<TemplatePreview>(`/api/v1/email-templates/${encodeURIComponent(id)}/preview`, { method: "POST", body: data }),
 
   // Legacy single email configuration (maps to the primary SMTP account)
   getEmailConfig: () => request<EmailConfig>("/api/v1/email-config"),

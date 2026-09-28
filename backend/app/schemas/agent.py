@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from app.models.enums import EmailFormat
 from app.schemas.common import Text
+from app.schemas.template import TemplateVariables
 
 
 class Tone(str, Enum):
@@ -25,6 +26,10 @@ class GenerateEmailRequest(BaseModel):
     additional_instructions: Text(2000) | None = Field(default=None, examples=["Keep it under 150 words."])
     email_account_id: uuid.UUID | None = Field(
         default=None, description="Write as this account's sender identity (defaults to the company's default account)."
+    )
+    template_id: uuid.UUID | None = Field(default=None, description="Optional reusable template to base the email on.")
+    template_variables: TemplateVariables = Field(
+        default_factory=dict, description="Values for the template's own placeholders (built-ins are filled automatically)."
     )
 
 
@@ -48,3 +53,7 @@ class GenerateEmailResponse(BaseModel):
     suggested_format: EmailFormat = Field(description="Default format from preferences.")
     suggested_cc: list[str] = Field(default_factory=list)
     suggested_bcc: list[str] = Field(default_factory=list)
+    template_id: uuid.UUID | None = None
+    missing_template_variables: list[str] = Field(
+        default_factory=list, description="Template placeholders that had no value (the AI fills or removes them)."
+    )

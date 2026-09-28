@@ -8,6 +8,7 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/company", label: "Company Profile" },
   { href: "/email-accounts", label: "Email Accounts" },
+  { href: "/templates", label: "Templates" },
   { href: "/signature", label: "Signature" },
   { href: "/preferences", label: "Preferences" },
   { href: "/agent", label: "AI Email Agent" },

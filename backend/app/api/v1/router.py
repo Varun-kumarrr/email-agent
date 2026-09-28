@@ -1,6 +1,16 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import agent, auth, company, email_accounts, email_config, emails, preferences, signature
+from app.api.v1.endpoints import (
+    agent,
+    auth,
+    company,
+    email_accounts,
+    email_config,
+    emails,
+    preferences,
+    signature,
+    templates,
+)
 from app.schemas.errors import COMMON_ERROR_RESPONSES
 
 api_router = APIRouter(prefix="/api/v1", responses=COMMON_ERROR_RESPONSES)
@@ -12,3 +22,4 @@ api_router.include_router(signature.router)
 api_router.include_router(preferences.router)
 api_router.include_router(agent.router)
 api_router.include_router(emails.router)
+api_router.include_router(templates.router)

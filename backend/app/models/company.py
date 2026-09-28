@@ -8,6 +8,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.email import EmailAccount, EmailHistory, EmailPreferences, EmailSignature
+    from app.models.template import EmailTemplate
     from app.models.user import User
 
 
@@ -57,6 +58,9 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     email_history: Mapped[list["EmailHistory"]] = relationship(
         back_populates="company", cascade="all, delete-orphan"
+    )
+    email_templates: Mapped[list["EmailTemplate"]] = relationship(
+        back_populates="company", cascade="all, delete-orphan", order_by="EmailTemplate.name"
     )
 
 
