@@ -1,16 +1,17 @@
 """Shared test fixtures.
 
-By default tests run against an isolated in-memory SQLite database (schema built
-from the models), so they need no credentials and never touch the application
-database. Set TEST_DATABASE_URL to a *separate* PostgreSQL database whose name
-ends in "_test" to run the same suite against PostgreSQL:
+Every test runs against a dedicated PostgreSQL test database (for example
+`email_agent_test`), never the application database. Its URL comes from the
+TEST_DATABASE_URL environment variable, or from the git-ignored backend/.env:
 
-    TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/email_agent_test pytest
+    TEST_DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/email_agent_test
 
-SMTP and the LLM are always mocked.
+The schema is created with the real Alembic migrations, and every table is
+emptied before each test. SMTP and the LLM are always mocked.
 """
 
 import os
+from pathlib import Path
 
 # Settings are read at import time, so configure the test environment first.
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-only-used-in-tests"
@@ -20,10 +21,12 @@ os.environ["LLM_API_KEY"] = ""
 os.environ["SMTP_RETRY_BACKOFF_SECONDS"] = "0"
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, make_url
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
 from app.core.config import settings
@@ -32,17 +35,44 @@ from app.db.base import Base
 from app.db.database import get_db
 from app.main import app
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
-def _checked_postgres_url(url: str) -> str:
-    """Refuse anything that could be the real application database."""
-    parsed = make_url(url)
+class _TestSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
+
+    TEST_DATABASE_URL: str = ""
+
+
+def test_database_url() -> str:
+    """The PostgreSQL test database URL, validated so it can never be the app database."""
+    url = _TestSettings().TEST_DATABASE_URL.strip()
+    if not url:
+        pytest.exit(
+            "TEST_DATABASE_URL is not set. Point it at a separate PostgreSQL database, e.g. "
+            "postgresql+psycopg://<user>:<password>@localhost:5432/email_agent_test "
+            "(environment variable or backend/.env).",
+            returncode=2,
+        )
+    parsed, app_db = make_url(url), make_url(settings.DATABASE_URL)
+    if not parsed.drivername.startswith("postgresql"):
+        pytest.exit("TEST_DATABASE_URL must be a PostgreSQL URL.", returncode=2)
     if not (parsed.database or "").endswith("_test"):
-        raise RuntimeError("TEST_DATABASE_URL must point to a database whose name ends with '_test'")
-    if parsed.render_as_string(hide_password=False) == make_url(settings.DATABASE_URL).render_as_string(hide_password=False):
-        raise RuntimeError("TEST_DATABASE_URL must differ from DATABASE_URL")
+        pytest.exit("TEST_DATABASE_URL must point to a database whose name ends with '_test'.", returncode=2)
+    if (parsed.host, parsed.port, parsed.database) == (app_db.host, app_db.port, app_db.database):
+        pytest.exit("TEST_DATABASE_URL must not be the application database (DATABASE_URL).", returncode=2)
     return url
+
+
+test_database_url.__test__ = False  # a helper, not a test
+
+
+def alembic_config(url: str) -> Config:
+    """Alembic config bound explicitly to `url` (never falls back to DATABASE_URL)."""
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.cmd_opts = type("Opts", (), {"x": [f"db_url={url}"]})()
+    return config
 
 
 @pytest.fixture(autouse=True)
@@ -53,39 +83,37 @@ def _reset_rate_limits():
 
 
 @pytest.fixture(scope="session")
-def _postgres_engine():
-    if not TEST_DATABASE_URL:
-        yield None
-        return
-    engine = create_engine(_checked_postgres_url(TEST_DATABASE_URL), hide_parameters=True)
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+def database_url() -> str:
+    return test_database_url()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _postgres_engine(database_url):
+    # autouse: every run validates TEST_DATABASE_URL and connects to PostgreSQL up front,
+    # even when the selected tests don't use the database.
+    engine = create_engine(database_url, hide_parameters=True)
+    with engine.connect() as connection:
+        current = connection.execute(text("SELECT current_database()")).scalar()
+    assert current.endswith("_test"), f"refusing to run tests against {current!r}"
+
+    config = alembic_config(database_url)
+    command.downgrade(config, "base")  # start from an empty schema
+    command.upgrade(config, "head")  # build it with the real migrations
     yield engine
-    Base.metadata.drop_all(engine)
+    command.downgrade(config, "base")
     engine.dispose()
+
+
+def _truncate_all(engine) -> None:
+    tables = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture()
 def engine(_postgres_engine):
-    if _postgres_engine is not None:
-        # Empty every table before each test (children first).
-        with _postgres_engine.begin() as connection:
-            for table in reversed(Base.metadata.sorted_tables):
-                connection.execute(table.delete())
-        yield _postgres_engine
-        return
-
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-
-    @event.listens_for(engine, "connect")
-    def _enable_foreign_keys(dbapi_connection, _):
-        dbapi_connection.execute("PRAGMA foreign_keys=ON")
-
-    Base.metadata.create_all(engine)
-    yield engine
-    engine.dispose()
+    _truncate_all(_postgres_engine)  # every test starts with empty tables
+    yield _postgres_engine
 
 
 @pytest.fixture()

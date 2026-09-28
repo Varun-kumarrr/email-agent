@@ -1,23 +1,15 @@
 import pytest
-from sqlalchemy import create_engine, event
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.models import Company, CompanyService, EmailConfiguration, SecurityType, User
 
 
 @pytest.fixture()
-def session():
-    engine = create_engine("sqlite://")
-
-    @event.listens_for(engine, "connect")
-    def _fk_on(dbapi_connection, _):
-        dbapi_connection.execute("PRAGMA foreign_keys=ON")
-
-    Base.metadata.create_all(engine)
-    with Session(engine) as s:
-        yield s
+def session(db_session):
+    # The shared PostgreSQL test session (tables emptied before each test).
+    yield db_session
+    db_session.rollback()
 
 
 def _user(email="a@example.com"):

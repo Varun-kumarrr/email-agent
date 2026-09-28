@@ -115,7 +115,7 @@ Layers (backend):
 | Email | Python `smtplib` + `email` | Standard, supports STARTTLS/SSL, MIME multipart |
 | AI | Google Gemini REST (`gemini-2.5-flash`), httpx | Free tier, structured JSON output; mock provider offline |
 | Frontend | Next.js 16, React 19, TypeScript | Routing, type safety, production build |
-| Tests | pytest, FastAPI TestClient, fakes for SMTP/LLM | 172 tests, no real credentials needed |
+| Tests | pytest, FastAPI TestClient, fakes for SMTP/LLM | 173 tests on a dedicated PostgreSQL test database |
 | Dev ops | Docker Compose (Postgres + API + web) | One-command stack |
 
 ## 5. Folder structure
@@ -145,7 +145,7 @@ email-agent/
 │   │   │   └── ...                # company, email_config, signature, preferences, auth
 │   │   └── utils/signature.py
 │   ├── alembic/                   # env.py + versions/0001_initial_schema.py
-│   ├── tests/                     # 172 pytest tests (+ fakes for SMTP and LLM)
+│   ├── tests/                     # 173 pytest tests on PostgreSQL (+ fakes for SMTP and LLM)
 │   ├── requirements.txt  pytest.ini  alembic.ini  Dockerfile  .env.example
 ├── frontend/
 │   ├── src/app/(auth)/            # login, register
@@ -471,16 +471,22 @@ Then follow PostgreSQL → backend → frontend setup below (or use [Docker](#34
 ## 20. PostgreSQL setup
 
 ```bash
+PostgreSQL is the only supported database. Create the application database and a separate test database:
+
+```bash
 psql -U postgres -h localhost -c "CREATE DATABASE email_agent;"
-# optional, for running the test suite against PostgreSQL:
 psql -U postgres -h localhost -c "CREATE DATABASE email_agent_test;"
 ```
 
-Put the connection string in `backend/.env`:
+Put both connection strings in `backend/.env` (git-ignored):
 
 ```
 DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/email_agent
+TEST_DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/email_agent_test
 ```
+
+The test suite only ever uses `TEST_DATABASE_URL`; it refuses to start if that URL is missing,
+isn't PostgreSQL, doesn't end in `_test`, or points at the application database.
 
 ## 21. Backend setup
 
@@ -513,7 +519,8 @@ npm run dev                      # http://localhost:3000
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | ✔ | `postgresql+psycopg://user:password@host:5432/email_agent` |
+| `DATABASE_URL` | ✔ | `postgresql+psycopg://user:password@host:5432/email_agent` (PostgreSQL only) |
+| `TEST_DATABASE_URL` | for tests | Separate PostgreSQL database for pytest, name must end in `_test` (e.g. `email_agent_test`) |
 | `SECRET_KEY` | ✔ | JWT signing key — `python -c "import secrets; print(secrets.token_urlsafe(64))"` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | | Default 60 |
 | `ENCRYPTION_KEY` | ✔ in production | Fernet key for SMTP passwords — `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. If empty in development, a key is derived from `SECRET_KEY` |
@@ -582,11 +589,15 @@ Open <http://localhost:3000>, register, and follow the dashboard checklist.
 
 ```bash
 cd backend
-pytest                                   # 172 tests, in-memory SQLite, SMTP + LLM mocked
-# the same suite against PostgreSQL (separate database whose name ends in _test):
-TEST_DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/email_agent_test pytest
+pytest                                   # 173 tests against PostgreSQL (TEST_DATABASE_URL), SMTP + LLM mocked
 cd ../frontend && npm run lint && npm run build
 ```
+
+All tests run against the PostgreSQL test database (`email_agent_test`), configured with
+`TEST_DATABASE_URL` in `backend/.env` or the environment. At session start the suite checks the URL
+(PostgreSQL, name ends in `_test`, not `DATABASE_URL`), confirms `current_database()`, builds the
+schema with the real Alembic migrations (`downgrade base` → `upgrade head`), and truncates every table
+before each test. The application database `email_agent` is never touched.
 
 Coverage by area: auth (registration, duplicates, login, invalid password, missing/invalid/expired/
 forged tokens) · company (CRUD, validation, isolation) · email config (password never returned,

@@ -9,8 +9,6 @@ __pycache__/
 venv/
 .venv/
 .pytest_cache/
-*.db
-*.sqlite3
 
 # Node / Next.js
 node_modules/

@@ -1,7 +1,7 @@
 # Assignment Compliance Checklist
 
 "Tested" means covered by an automated test in `backend/tests/` (run: `cd backend && pytest`,
-172 passing) and/or verified manually against the running app with PostgreSQL (see the final
+173 passing on PostgreSQL) and/or verified manually against the running app with PostgreSQL (see the final
 system test notes at the bottom). Paths are relative to the repository root.
 
 ## Core requirements
@@ -54,7 +54,7 @@ system test notes at the bottom). Paths are relative to the repository root.
 | 44 | No hard-coded sender | Yes | From = company's configured SMTP address | Yes — two companies send via their own accounts | No global SMTP settings exist |
 | 45 | Python | Yes | Python 3.11 | n/a | |
 | 46 | FastAPI | Yes | `backend/app` | Yes | |
-| 47 | PostgreSQL | Yes | `DATABASE_URL`, psycopg 3 | Yes — full suite also run on PostgreSQL | App DB `email_agent` at head |
+| 47 | PostgreSQL | Yes | `DATABASE_URL`, psycopg 3 | Yes — the entire suite runs on PostgreSQL | App DB `email_agent` at head; tests use `email_agent_test` |
 | 48 | Pydantic | Yes | `backend/app/schemas`, settings | Yes | |
 | 49 | SQLAlchemy | Yes | SQLAlchemy 2.1 typed ORM | Yes | |
 | 50 | Error handling | Yes | `core/exceptions.py`, `core/error_handlers.py` | Yes — `test_error_handling.py` | Consistent JSON; 400–503 |
@@ -85,7 +85,7 @@ system test notes at the bottom). Paths are relative to the repository root.
 | 75 | Limitations | Yes | README §30, §32 | n/a | |
 | 76 | Migrations | Yes | `backend/alembic/versions/0001_initial_schema.py` | Yes — upgrade/downgrade + drift test; verified on PostgreSQL | |
 | 77 | .env.example | Yes | `backend/.env.example`, `frontend/.env.example`, `.env.example` (Docker) | Verified tracked, real `.env` ignored | |
-| 78 | Tests | Yes | `backend/tests/` (172 tests) | Pass on SQLite and PostgreSQL | |
+| 78 | Tests | Yes | `backend/tests/` (173 tests) | Pass on PostgreSQL (`email_agent_test`) | PostgreSQL is the only database used |
 | 79 | Swagger | Yes | `/docs` | Yes | Bearer "Authorize" supported |
 | 80 | Demo workflow | Yes | README §35, dashboard checklist | Yes — `test_e2e_flow.py`; live run passed 18/18 checks | |
 
@@ -107,7 +107,7 @@ system test notes at the bottom). Paths are relative to the repository root.
 
 * Backend running (`uvicorn main:app --reload`, PostgreSQL `email_agent` at Alembic head `0001_initial_schema`); `/`, `/docs`, `/redoc`, `/openapi.json` → 200.
 * Alembic `upgrade head` → `downgrade base` → `upgrade head` verified on a scratch PostgreSQL database (`email_agent_test`).
-* Backend tests: 172 passed on in-memory SQLite and 172 passed against PostgreSQL (`email_agent_test`).
+* Backend tests: 173 passed against PostgreSQL (`email_agent_test`); `email_agent` verified untouched by the test run.
 * Frontend: `npm run lint`, `tsc --noEmit`, `npm run build` all clean; dev server running and every page exercised in a browser.
 * Live workflow against the running API with real PostgreSQL and a local SMTP server (aiosmtpd): register → login →
   company → SMTP config → SMTP test (real delivery) → signature → preferences → AI draft (mock provider, no key) → edit →

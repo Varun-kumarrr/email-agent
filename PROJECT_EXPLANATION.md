@@ -35,7 +35,7 @@ provides all of these and is the de-facto production choice.
 * All queries use bound parameters → SQL injection is prevented by construction.
 * Relationships + `cascade="all, delete-orphan"` make "replace the company's services list" a
   simple assignment.
-* The same models run on PostgreSQL (app) and SQLite (fast isolated tests).
+* The application and the test suite both run on PostgreSQL (separate databases).
 
 ## 5. Why Alembic
 
@@ -222,12 +222,14 @@ with a generic message (details only in server logs). `app/core/logging.py` reda
 
 ## 25. Testing
 
-172 pytest tests (`backend/tests/`): unit tests (security helpers, encryption, sanitizer, signature
+173 pytest tests (`backend/tests/`): unit tests (security helpers, encryption, sanitizer, signature
 helpers, providers), API tests for every endpoint, isolation tests, SMTP failure matrix, prompt
 injection, security (no secrets in any response/log over a full flow), migration drift, and an
 end-to-end workflow test. SMTP is replaced by a fake server (`tests/fakes.py`) and the LLM by a
-recording fake / the mock provider, so no real credentials are needed. Tests run on in-memory SQLite
-by default and on a separate PostgreSQL `*_test` database via `TEST_DATABASE_URL` (verified).
+recording fake / the mock provider, so no real SMTP or LLM credentials are needed. All tests run on a
+dedicated PostgreSQL database (`email_agent_test`, from `TEST_DATABASE_URL`); the schema is built with
+the real Alembic migrations, tables are truncated between tests, and guards refuse any URL that isn't
+PostgreSQL, doesn't end in `_test`, or matches the application database.
 
 ## 26. Frontend architecture
 
