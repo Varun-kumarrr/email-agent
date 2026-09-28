@@ -46,7 +46,7 @@ def test_mock_provider_uses_only_company_context():
     assert "ABC Technologies" in email.subject
     assert "Hi Priya," in email.body
     assert "CRM, Sales automation and Analytics" in email.body
-    assert "Reduce manual sales work" in email.body
+    assert "reduce manual sales work" in email.body.lower()
     assert "Best regards,\nAnjali" in email.body
 
 

@@ -2,6 +2,8 @@
 
 Lets the whole workflow be demonstrated without an API key. It builds the email
 only from the supplied company context, so it never invents facts either.
+It does not interpret the free-text purpose (that needs a real model); the UI
+labels drafts from this provider so the user knows to edit them.
 """
 
 from app.services.llm.base import GeneratedEmail, LLMProvider, LLMRequest
@@ -15,6 +17,11 @@ def _join(items: list[str]) -> str:
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
 class MockLLMProvider(LLMProvider):
     name = "mock"
 
@@ -22,29 +29,38 @@ class MockLLMProvider(LLMProvider):
         ctx = request.context
         company = ctx.get("company", {})
         company_name = company.get("name") or "our company"
-        services = [s["name"] for s in company.get("services", [])]
-        customers = [c["segment"] for c in company.get("target_customers", [])]
-        values = [v["statement"] for v in company.get("value_propositions", [])]
+        services = [s["name"] for s in company.get("services", []) if s.get("name")]
+        customers = [c["segment"] for c in company.get("target_customers", []) if c.get("segment")]
+        values = [v["statement"] for v in company.get("value_propositions", []) if v.get("statement")]
         recipient = ctx.get("recipient_name") or "there"
-        purpose = (ctx.get("purpose") or "").strip()
-        sender = ctx.get("sender_name") or company.get("contact_person") or company_name
+        tone = ctx.get("tone", "professional")
+        sender = ctx.get("sender_name") or company.get("contact_person")
 
-        subject = f"{company_name}: {purpose[:60].rstrip('.')}" if purpose else f"Introducing {company_name}"
+        if services and customers:
+            subject = f"{company_name}: {services[0]} for {customers[0].lower()}"
+        elif services:
+            subject = f"{company_name}: {_join(services[:2])}"
+        else:
+            subject = f"Introducing {company_name}"
 
-        paragraphs = [f"Hi {recipient},"]
-        intro = f"I'm reaching out from {company_name}."
+        greeting = f"Dear {recipient}," if tone == "formal" else f"Hi {recipient},"
+        intro = f"I'm {sender} from {company_name}." if sender else f"I'm reaching out from {company_name}."
         if company.get("description"):
-            intro += f" {company['description'].rstrip('.')}."
-        paragraphs.append(intro)
-        if purpose:
-            paragraphs.append(f"The reason for my email: {purpose.rstrip('.')}.")
+            intro += f" {_sentence(company['description'])}"
+        paragraphs = [greeting, intro]
+
         if services:
             line = f"We offer {_join(services)}"
-            line += f", designed for {_join(customers).lower()}." if customers else "."
+            line += f", built for {_join(customers).lower()}." if customers else "."
             paragraphs.append(line)
         if values:
-            paragraphs.append(f"Our aim is simple: {values[0].rstrip('.')}.")
-        paragraphs.append("Would you be open to a short call to see whether this could help you?")
+            paragraphs.append(f"Our focus is simple: {_sentence(values[0][0].lower() + values[0][1:])}")
+
+        paragraphs.append(
+            "Would you be open to a short call next week to see whether this could help you?"
+            if tone != "concise"
+            else "Open to a quick call?"
+        )
 
         body = "\n\n".join(paragraphs)
         policy = ctx.get("signature_policy", "none")
@@ -53,5 +69,5 @@ class MockLLMProvider(LLMProvider):
         elif policy == "appended_on_send":
             body += "\n\nBest regards,"  # the saved signature is appended when sending
         else:
-            body += f"\n\nBest regards,\n{sender}"
+            body += "\n\nBest regards," + (f"\n{sender}" if sender else f"\n{company_name}")
         return GeneratedEmail(subject=subject, body=body)
