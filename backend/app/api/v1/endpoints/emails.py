@@ -9,6 +9,7 @@ from app.core.exceptions import NotFoundError
 from app.models import EmailStatus
 from app.repositories.email_history_repository import EmailHistoryRepository
 from app.schemas.email import EmailHistoryItem, EmailHistoryPage, SendEmailRequest, SendEmailResponse
+from app.schemas.errors import ErrorResponse
 from app.services.email_sender import EmailSenderService
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
@@ -25,10 +26,10 @@ router = APIRouter(prefix="/emails", tags=["Emails"])
         "email history."
     ),
     responses={
-        400: {"description": "Too many recipients"},
-        404: {"description": "Company or SMTP configuration missing"},
-        429: {"description": "Daily sending limit reached"},
-        502: {"description": "SMTP delivery failed (recorded in history)"},
+        400: {"model": ErrorResponse, "description": "Too many recipients"},
+        404: {"model": ErrorResponse, "description": "Company or SMTP configuration missing"},
+        429: {"model": ErrorResponse, "description": "Daily sending limit reached"},
+        502: {"model": ErrorResponse, "description": "SMTP delivery failed (recorded in history)"},
     },
 )
 def send_email(data: SendEmailRequest, company: CurrentCompany, user: CurrentUser, db: DbSession):

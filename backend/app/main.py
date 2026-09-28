@@ -7,12 +7,54 @@ from app.core.logging import configure_logging
 
 configure_logging(settings.LOG_LEVEL)
 
-app = FastAPI(title="Email Agent API", version="1.0.0")
+DESCRIPTION = """
+Backend for the **Email Agent — Profile & Email Configuration Module**.
+
+A company sets up its profile and its **own SMTP account**; an AI agent drafts
+emails grounded in that profile; the user reviews/edits the draft and sends it
+through the company's SMTP account. Every send is recorded in the history.
+
+### Authentication
+1. `POST /api/v1/auth/register` → create an account.
+2. `POST /api/v1/auth/login` → receive a JWT `access_token`.
+3. Send `Authorization: Bearer <access_token>` on every other request.
+   In Swagger, click **Authorize** and paste the token.
+
+### Data isolation
+All company data is resolved from the token's user. No endpoint accepts a
+company or user ID, so one company can never access another company's data.
+
+### Secrets
+SMTP passwords are write-only (encrypted at rest; responses only show
+`password_configured`). Validation errors never echo submitted values.
+
+### Errors
+Every error has the shape `{"error": {"code", "message", "details"}}`.
+"""
+
+TAGS = [
+    {"name": "Health", "description": "Service status."},
+    {"name": "Authentication", "description": "Register, log in (JWT) and fetch the current user."},
+    {"name": "Company Profile", "description": "The company information used as AI context."},
+    {"name": "Email Configuration", "description": "The company's own SMTP account and connection test."},
+    {"name": "Email Signature", "description": "Reusable signature, optionally appended automatically."},
+    {"name": "Email Preferences", "description": "Sender overrides, format, limits, default CC/BCC."},
+    {"name": "AI Email Agent", "description": "Generate an editable email draft from the company context."},
+    {"name": "Emails", "description": "Send via the company's SMTP account and view history."},
+]
+
+app = FastAPI(
+    title="Email Agent API",
+    version="1.0.0",
+    description=DESCRIPTION,
+    openapi_tags=TAGS,
+    swagger_ui_parameters={"persistAuthorization": True},
+)
 
 register_exception_handlers(app)
 app.include_router(api_router)
 
 
-@app.get("/", tags=["Health"])
+@app.get("/", tags=["Health"], summary="Health check")
 def read_root():
     return {"message": "Email Agent API is running"}
