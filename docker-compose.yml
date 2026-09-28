@@ -1,0 +1,59 @@
+# Development stack: PostgreSQL + FastAPI + Next.js
+#
+#   cp .env.example .env      # fill in the secrets (this file is git-ignored)
+#   docker compose up --build
+#
+# Frontend: http://localhost:3000   API: http://localhost:8000/docs
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: email_agent
+      POSTGRES_USER: email_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "5433:5432" # 5433 on the host to avoid clashing with a local PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U email_agent -d email_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: postgresql+psycopg://email_agent:${POSTGRES_PASSWORD}@db:5432/email_agent
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      SMTP_ALLOW_PRIVATE_HOSTS: ${SMTP_ALLOW_PRIVATE_HOSTS:-false}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # The browser calls the API directly, so this is the host-visible URL.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
