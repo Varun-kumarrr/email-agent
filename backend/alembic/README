@@ -1,0 +1,9 @@
+Database migrations (Alembic)
+
+The connection URL is read from DATABASE_URL (backend/.env).
+
+Apply all migrations:          alembic upgrade head
+Roll back the last migration:  alembic downgrade -1
+Roll back everything:          alembic downgrade base
+Show current revision:         alembic current
+Create a new migration:        alembic revision --autogenerate -m "describe change"
