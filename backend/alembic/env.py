@@ -11,7 +11,7 @@ from app.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Allow `alembic -x db_url=...` to override (used by tests); otherwise use settings.
 db_url = context.get_x_argument(as_dictionary=True).get("db_url") or settings.DATABASE_URL

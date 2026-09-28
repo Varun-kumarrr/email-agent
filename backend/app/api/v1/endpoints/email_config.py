@@ -1,8 +1,14 @@
 from fastapi import APIRouter, status
 
 from app.core.dependencies import CurrentCompany, DbSession
-from app.schemas.email_config import EmailConfigCreate, EmailConfigResponse, EmailConfigUpdate
-from app.services.email_config_service import EmailConfigService, to_response
+from app.schemas.email_config import (
+    EmailConfigCreate,
+    EmailConfigResponse,
+    EmailConfigUpdate,
+    SmtpTestRequest,
+    SmtpTestResponse,
+)
+from app.services.email_config_service import EmailConfigService, SmtpTestService, to_response
 
 router = APIRouter(prefix="/email-config", tags=["Email Configuration"])
 
@@ -35,3 +41,17 @@ def get_email_config(company: CurrentCompany, db: DbSession):
 )
 def update_email_config(data: EmailConfigUpdate, company: CurrentCompany, db: DbSession):
     return to_response(EmailConfigService(db).update(company, data))
+
+
+@router.post(
+    "/test",
+    response_model=SmtpTestResponse,
+    summary="Send a test email through the company's SMTP account",
+    description=(
+        "Connects with the configured security mode, authenticates and sends a test email. "
+        "Always returns 200 with `success` true/false and a safe message; credentials and "
+        "stack traces are never included."
+    ),
+)
+def test_email_config(data: SmtpTestRequest, company: CurrentCompany, db: DbSession):
+    return SmtpTestService(db).run(company, data.recipient)

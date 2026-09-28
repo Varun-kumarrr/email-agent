@@ -55,3 +55,14 @@ class EmailConfigResponse(EmailConfigBase):
     last_tested_at: datetime | None = None
     last_test_success: bool | None = None
     updated_at: datetime
+
+
+class SmtpTestRequest(BaseModel):
+    recipient: EmailStr = Field(description="Where to send the test email.", examples=["anjali@abctech.com"])
+
+
+class SmtpTestResponse(BaseModel):
+    success: bool
+    message: str
+    error_code: str | None = None
+    tested_at: datetime
