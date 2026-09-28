@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -49,6 +50,17 @@ app = FastAPI(
     description=DESCRIPTION,
     openapi_tags=TAGS,
     swagger_ui_parameters={"persistAuthorization": True},
+)
+
+# Only the configured frontend origins may call the API from a browser.
+# A wildcard is never used: origins come from ALLOWED_ORIGINS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin for origin in settings.ALLOWED_ORIGINS if origin != "*"],
+    allow_credentials=False,  # auth uses the Authorization header, not cookies
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+    max_age=600,
 )
 
 register_exception_handlers(app)
