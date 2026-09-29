@@ -115,7 +115,9 @@ class EmailAgentService:
 
     def _generate(self, request: LLMRequest) -> tuple[GeneratedEmail, str, bool, str | None]:
         try:
-            return guard_output(self.provider.generate_email(request)), self.provider.name, False, None
+            raw = self.provider.generate_email(request)
+            # A provider chain reports which provider wrote the email, and a warning if it was not the first.
+            return guard_output(raw), raw.provider or self.provider.name, raw.warning is not None, raw.warning
         except LLMError as error:
             logger.warning("LLM provider %s failed code=%s", self.provider.name, error.code)
             if not settings.LLM_FALLBACK_TO_MOCK or isinstance(self.provider, MockLLMProvider):

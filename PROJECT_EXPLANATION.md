@@ -19,7 +19,7 @@ company's data and credentials isolated from every other company.
 ```
 Next.js (browser) ──JWT──▶ FastAPI routers ─▶ services ─▶ repositories / SQLAlchemy ─▶ PostgreSQL
                                    │              │
-                                   │              ├─▶ LLM provider (Gemini, or mock fallback)
+                                   │              ├─▶ LLM provider (Groq → Gemini → mock)
                                    │              ├─▶ SMTP server / Gmail API   (sync mode)
                                    │              └─▶ Redis queue ─▶ Celery worker ─▶ SMTP / Gmail API
                                    └─ dependencies: DB session, current user, current company, LLM
@@ -172,15 +172,20 @@ preferences → signature → optional template → build context → build prom
 guard → signature de-duplication → editable draft (subject, body, provider, fallback flag, signature
 preview, suggested format/CC/BCC, missing template variables). It never sends email.
 
-**Provider abstraction** (`services/llm/`): `LLMProvider.generate_email()`; `GeminiProvider` (httpx,
-JSON response schema, key in the `x-goog-api-key` header, errors mapped to safe `LLMError`s, injectable
-transport for tests) and `MockLLMProvider` (deterministic, context-only). The endpoint receives the
-provider through the `get_llm` dependency.
+**Provider abstraction** (`services/llm/`): `LLMProvider.generate_email()` with three implementations,
+all using httpx with an injectable transport for tests and errors mapped to safe `LLMError`s:
+`GroqProvider` (primary; Groq's OpenAI-compatible Chat Completions API, model `GROQ_MODEL`, default
+`openai/gpt-oss-120b`, JSON mode, key in the `Authorization` header), `GeminiProvider` (secondary; JSON
+response schema, key in the `x-goog-api-key` header) and `MockLLMProvider` (deterministic, context-only).
+The endpoint receives the provider through the `get_llm` dependency; `get_llm_provider()` builds it from
+`LLM_PROVIDER` (`groq`, `gemini` or `mock`), skipping providers without a key.
 
-**Fallback**: if Gemini fails and `LLM_FALLBACK_TO_MOCK=true`, the mock writes the draft and the
-response carries `fallback_used: true` and a warning; otherwise 503. In live testing Gemini first
-returned HTTP 503 `UNAVAILABLE` (high demand), which the fallback handled; a later live request
-(2026-09-29) succeeded with `provider: gemini` and `fallback_used: false`.
+**Fallback chain**: with `LLM_PROVIDER=groq`, `FallbackLLMProvider` tries Groq, then Gemini, and tags the
+email with the provider that wrote it (a Gemini draft is flagged `fallback_used: true` with a warning).
+If both fail and `LLM_FALLBACK_TO_MOCK=true`, the agent's existing mock fallback writes the draft;
+otherwise 503. The prompt, context and output guard are identical for every provider. In live testing
+Gemini first returned HTTP 503 `UNAVAILABLE` (high demand), which the fallback handled; a later live
+Gemini request (2026-09-29) succeeded.
 
 ## 13. Context construction
 
@@ -276,7 +281,9 @@ output; no raw HTML is rendered.
 * **VARCHAR enums without CHECK constraints**: easy to extend; validation lives in the app.
 * **In-memory rate limits** and **JWT in `localStorage`**: simple for the assignment; production
   alternatives documented (Redis limits, HttpOnly cookies).
-* **Mock LLM fallback**: keeps the workflow usable when the free tier is unavailable, flagged in the UI.
+* **Provider chain (Groq → Gemini → mock)**: keeps generation working when a free-tier provider is
+  unavailable or rate limited; fallbacks are flagged in the UI. Plain httpx instead of vendor SDKs keeps
+  dependencies small and makes the providers easy to fake in tests.
 
 ## 22. Production improvements
 

@@ -51,8 +51,8 @@ against a live external service are stated explicitly.
 | 37 | Agent uses contact information | Yes | same | Yes | |
 | 38 | Agent uses email signature | Yes | same | Yes | |
 | 39 | Agent uses sender identity | Yes | same (selected or default account + preference overrides) | Yes | |
-| 40 | Free-tier LLM, named and configurable | Yes | `services/llm/gemini.py` (Google Gemini) | Yes — simulated responses (`test_llm_providers.py`) | Live generation verified once (2026-09-29, `fallback_used: false`); earlier requests returned HTTP 503 `UNAVAILABLE` (Google high demand) |
-| 41 | Mock / fallback implementation | Yes | `services/llm/mock.py`, fallback in `services/agent/email_agent.py` | Yes — no key, provider failure, fallback disabled → 503 | Verified live when Gemini returned 503 |
+| 40 | Free-tier LLM, named and configurable | Yes | `services/llm/groq.py` (Groq, primary, `openai/gpt-oss-120b`), `services/llm/gemini.py` (Google Gemini, secondary) | Yes — simulated responses (`test_groq_provider.py`, `test_llm_providers.py`) | Live Groq verified (2026-09-29, `provider: groq`, `fallback_used: false`). Live Gemini verified once (2026-09-29); earlier Gemini requests returned HTTP 503 `UNAVAILABLE` |
+| 41 | Mock / fallback implementation | Yes | `services/llm/fallback.py` (Groq → Gemini), `services/llm/mock.py` + final fallback in `services/agent/email_agent.py` | Yes — Groq→Gemini, both failing → mock, no keys, fallback disabled → 503 | Mock fallback verified live when Gemini failed |
 | 42 | Send using the user's configured account | Yes | `services/email_sender.py`, `services/email_delivery.py` | Yes — `test_email_sending.py`, `test_background_delivery.py`, e2e | Verified live via Gmail OAuth / Gmail API and via Mailpit |
 | 43 | No hard-coded system sender | Yes | From = selected or default company account | Yes — two companies send through their own accounts | No global SMTP settings exist |
 | 44 | Python, FastAPI | Yes | `backend/app` | Yes | |
@@ -102,6 +102,7 @@ against a live external service are stated explicitly.
 | Local SMTP delivery (Mailpit / local server) | Verified |
 | Docker Compose stack + Celery delivery + retry via Mailpit | Verified |
 | Real Gmail SMTP delivery | **Not demonstrated** (a working Gmail App Password was not available) |
+| Live Groq generation | Verified (2026-09-29: `provider: groq`, `fallback_used: false`, model `openai/gpt-oss-120b`) |
 | Live Gemini generation | Verified once (2026-09-29: `provider: gemini`, `fallback_used: false`); earlier attempts returned HTTP 503 `UNAVAILABLE` and the mock fallback was verified |
 | Gmail OAuth inside the Docker stack | Not configured / not tested |
 

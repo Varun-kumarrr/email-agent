@@ -36,8 +36,12 @@ class Settings(BaseSettings):
     # If empty, a key is derived from SECRET_KEY (acceptable for local development only).
     ENCRYPTION_KEY: SecretStr = Field(default=SecretStr(""))
 
-    # LLM
-    LLM_PROVIDER: str = "gemini"  # "gemini" or "mock"
+    # LLM. "groq" (primary, with Gemini as the secondary provider), "gemini" or "mock".
+    LLM_PROVIDER: str = "groq"
+    GROQ_API_KEY: SecretStr = Field(default=SecretStr(""))
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
+    # Gemini (Google AI Studio) key and model; used directly with LLM_PROVIDER=gemini,
+    # and as the fallback after Groq with LLM_PROVIDER=groq.
     LLM_API_KEY: SecretStr = Field(default=SecretStr(""))
     LLM_MODEL: str = "gemini-3.8-flash"
     LLM_TIMEOUT_SECONDS: float = 30.0

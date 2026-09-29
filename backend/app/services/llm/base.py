@@ -23,6 +23,10 @@ class LLMRequest:
 class GeneratedEmail:
     subject: str
     body: str
+    # Set by FallbackLLMProvider: which provider actually wrote the email, and a
+    # user-facing note when it was not the primary provider.
+    provider: str | None = None
+    warning: str | None = None
 
 
 class LLMError(Exception):

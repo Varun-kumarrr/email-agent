@@ -14,6 +14,7 @@ _PATTERNS = [
     (re.compile(r"(?i)((?:password|passwd|pwd|secret|api[_-]?key|x-goog-api-key|token)\s*[=:]\s*)(\S+)"), r"\1[REDACTED]"),
     (re.compile(r"(postgresql(?:\+\w+)?://[^:/\s]+:)[^@\s]+@"), r"\1[REDACTED]@"),
     (re.compile(r"AIza[0-9A-Za-z_-]{20,}"), "[REDACTED_API_KEY]"),
+    (re.compile(r"gsk_[0-9A-Za-z]{20,}"), "[REDACTED_API_KEY]"),  # Groq API keys
 ]
 
 

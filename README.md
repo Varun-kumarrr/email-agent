@@ -9,7 +9,7 @@ test email, is recorded in an email history with its delivery status.
 > Backend: Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2 · Alembic · Pydantic v2 · JWT · Celery · Redis
 > Frontend: Next.js 16 (App Router) · React 19 · TypeScript · plain CSS
 > Email: SMTP (`smtplib`) · Gmail OAuth 2.0 + Gmail API
-> AI: Google Gemini (free tier) behind a provider interface, with an offline mock/fallback provider
+> AI: Groq (primary, `openai/gpt-oss-120b`) → Google Gemini (secondary) → offline mock (final fallback), behind one provider interface
 
 ---
 
@@ -31,7 +31,7 @@ test email, is recorded in an email history with its delivery status.
 14. [Sending preferences](#14-sending-preferences)
 15. [Email templates](#15-email-templates)
 16. [AI email generation](#16-ai-email-generation)
-17. [LLM providers: Gemini and the mock fallback](#17-llm-providers-gemini-and-the-mock-fallback)
+17. [LLM providers: Groq, Gemini and the mock fallback](#17-llm-providers-groq-gemini-and-the-mock-fallback)
 18. [Email sending & delivery states](#18-email-sending--delivery-states)
 19. [Background delivery: Celery + Redis](#19-background-delivery-celery--redis)
 20. [Retry behaviour](#20-retry-behaviour)
@@ -91,7 +91,7 @@ a shared system mailbox. This module lets each company:
                                                               └──┬─────────┬─────────┬──────┬───┘
                                                                  │         │         │      │
                                                         PostgreSQL   Redis (broker)  │   LLM provider
-                                                       (Alembic)        │            │  (Gemini / mock)
+                                                       (Alembic)        │            │ (Groq → Gemini → mock)
                                                                         ▼            │
                                                             Celery worker ───────────┤
                                                             (background mode)        ▼
@@ -124,7 +124,7 @@ Backend layers:
 | Secrets at rest | cryptography (Fernet) | Authenticated encryption for SMTP passwords, OAuth tokens and PKCE verifiers |
 | Email | `smtplib` + `email`; httpx for the Gmail API | STARTTLS/SSL, MIME multipart; Gmail `users.messages.send` |
 | Background jobs | Celery 5.6 + Redis 7 | Queue emails, retry with backoff, keep the HTTP request fast |
-| AI | Google Gemini REST (`gemini-3.8-flash`) via httpx | Free tier, structured JSON output; mock fallback provider |
+| AI | Groq Chat Completions (`openai/gpt-oss-120b`) and Google Gemini REST (`gemini-3.8-flash`) via httpx | Groq primary, Gemini secondary, mock final fallback; JSON output |
 | Frontend | Next.js 16, React 19, TypeScript | Routing, type safety, standalone production build |
 | Tests | pytest, FastAPI TestClient, fakes for SMTP / Google / LLM | Run on a dedicated PostgreSQL test database |
 | Dev ops | Docker Compose | PostgreSQL, Redis, API, worker, frontend (+ optional Mailpit) |
@@ -147,7 +147,7 @@ email-agent/
 │   │   ├── repositories/          # user, company, email history queries
 │   │   ├── services/
 │   │   │   ├── agent/             # context, prompts, output_guard, email_agent
-│   │   │   ├── llm/               # base (LLMProvider), gemini, mock, factory
+│   │   │   ├── llm/               # base (LLMProvider), groq, gemini, mock, fallback chain, factory
 │   │   │   ├── email_account_service.py  # accounts, default rules, provider presets/hints
 │   │   │   ├── smtp_client.py     # SMTP connection, SSRF guard, safe error classification
 │   │   │   ├── google_oauth.py    # Google endpoints: authorize URL, code exchange, refresh, send
@@ -533,7 +533,7 @@ or sent (so background queueing cannot exceed it); account test emails are not c
 {
   "subject": "…", "body": "Hi Priya,\n\n…",
   "recipient_email": "priya@smallbiz.in",
-  "provider": "gemini",                    // or "mock"
+  "provider": "groq",                      // groq | gemini | mock
   "fallback_used": false, "warning": null,
   "signature_policy": "appended_on_send", "signature_preview": "Best Regards,\n…",
   "suggested_format": "HTML", "suggested_cc": [], "suggested_bcc": [],
@@ -558,29 +558,66 @@ statistics or awards; don't reveal the rules), data passed as JSON inside delimi
 sanitization (control characters removed, delimiter look-alikes neutralized), output validation,
 and human review before sending. Generation is rate limited per company.
 
-## 17. LLM providers: Gemini and the mock fallback
+## 17. LLM providers: Groq, Gemini and the mock fallback
 
-`app/services/llm/`: `LLMProvider` is an abstract interface with `generate_email(...)`.
+**Groq is the primary provider. Gemini is the secondary provider. Mock is the final fallback.**
 
-* **`GeminiProvider`** calls the Gemini REST API with httpx and requests JSON output via a response
-  schema. The key is read from `LLM_API_KEY`, sent in the `x-goog-api-key` header (not the URL) and
-  never logged. HTTP errors (429 quota, 401/403 key, 5xx, timeouts, malformed output) become safe
-  `LLMError`s.
+```
+LLM_PROVIDER=groq:   Groq ──failure──▶ Gemini ──failure──▶ Mock (if LLM_FALLBACK_TO_MOCK=true, else 503)
+LLM_PROVIDER=gemini: Gemini ──failure──▶ Mock
+LLM_PROVIDER=mock:   Mock
+```
+
+`app/services/llm/`: `LLMProvider` is an abstract interface with `generate_email(...)`; the email
+agent's business logic (context, prompt, output guard, signature handling) is the same for every provider.
+
+* **`GroqProvider`** (`groq.py`) calls Groq's OpenAI-compatible Chat Completions API
+  (`https://api.groq.com/openai/v1/chat/completions`) with httpx — no extra SDK — using the model
+  `GROQ_MODEL` (default **`openai/gpt-oss-120b`**) and JSON mode (`response_format: json_object`).
+  The key is read from `GROQ_API_KEY` and sent only in the `Authorization` header.
+* **`GeminiProvider`** (`gemini.py`) calls the Gemini REST API with httpx and requests JSON output via a
+  response schema. The key is read from `LLM_API_KEY` and sent in the `x-goog-api-key` header (not the URL).
+* **`FallbackLLMProvider`** (`fallback.py`) tries real providers in order (Groq, then Gemini) and tags the
+  email with the provider that wrote it. Each failure is logged as `LLM provider <name> failed code=<code>`
+  — never with keys, headers or provider error bodies.
 * **`MockLLMProvider`** builds a deterministic email only from the company context (and template, if
-  any) — used when no key is configured, and as the fallback.
-* **Fallback**: if Gemini fails and `LLM_FALLBACK_TO_MOCK=true` (default), the mock produces the
-  draft and the response is flagged `fallback_used: true` with a `warning` (shown in the UI). With
-  `LLM_FALLBACK_TO_MOCK=false`, the API returns 503.
+  any) — used when no key is configured, and as the final fallback.
+* A provider whose API key is empty is skipped (no key at all → mock). HTTP errors (429 rate limit,
+  401/403 key, 5xx, timeouts, malformed output) become safe `LLMError`s.
+* The response reports `provider` (`groq`, `gemini` or `mock`). `fallback_used: true` with a `warning`
+  (shown in the UI) means the primary provider failed and Gemini or the mock wrote the draft. With
+  `LLM_FALLBACK_TO_MOCK=false`, the API returns 503 when every real provider fails.
 
-Configure Gemini (free tier, Google AI Studio):
+Configure Groq (primary):
 
-1. Create an API key at <https://aistudio.google.com/apikey>.
-2. In `backend/.env`: `LLM_PROVIDER=gemini`, `LLM_API_KEY=your-api-key`, `LLM_MODEL=gemini-3.8-flash`,
-   `LLM_FALLBACK_TO_MOCK=true`.
-3. Restart the backend. Each draft reports which provider wrote it.
+1. Create an API key in the Groq console: <https://console.groq.com/keys>.
+2. In `backend/.env` (git-ignored — never commit API keys):
 
-Free-tier limits change; see <https://ai.google.dev/gemini-api/docs/rate-limits>. To add another
-provider, implement `LLMProvider` and register it in `app/services/llm/__init__.py`.
+```
+LLM_PROVIDER=groq
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=openai/gpt-oss-120b
+```
+
+Configure Gemini (secondary, optional): create a key at <https://aistudio.google.com/apikey> and set
+`LLM_API_KEY=your-gemini-api-key` and `LLM_MODEL=gemini-3.8-flash`. Keep `LLM_FALLBACK_TO_MOCK=true`.
+
+Restart the backend after changing keys (settings are read at startup). For Docker, put the same
+variables in the root `.env`.
+
+**Test email generation**: open *AI Email Agent*, fill in a recipient and purpose, click *Generate Email*
+and check the provider badge (`groq`, or `gemini` / `mock` with a fallback warning); or call
+`POST /api/v1/agent/generate-email` in Swagger and look at `provider` and `fallback_used`.
+
+Availability of live providers can vary, and free/developer rate limits apply to both Groq
+(<https://console.groq.com/docs/rate-limits>) and Gemini
+(<https://ai.google.dev/gemini-api/docs/rate-limits>); the fallback chain keeps generation working. To
+add another provider, implement `LLMProvider` and add it in `app/services/llm/__init__.py`.
+
+**Live Groq status.** A live generation through `POST /api/v1/agent/generate-email` (2026-09-29, model
+`openai/gpt-oss-120b`, fictional demo company) **succeeded** in about 2 seconds: the response reported
+`provider: groq` and `fallback_used: false`, and the draft used the company's services and the requested
+call. The API key did not appear in the response or the logs. Availability and rate limits can change.
 
 **Live Gemini status (honest result).** Earlier real requests with a valid free-tier key reached the
 Gemini API (key accepted, model found) but returned **HTTP 503 `UNAVAILABLE`** — Google's temporary
@@ -777,11 +814,13 @@ Open <http://localhost:3000>, register, and follow the dashboard checklist.
 | `ENCRYPTION_KEY` | ✔ in production | Fernet key for SMTP passwords and OAuth tokens — `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. If empty in development, a key is derived from `SECRET_KEY` |
 | `ENVIRONMENT` | | `development` / `production` (production refuses unsafe settings) |
 | `LOG_LEVEL`, `SQL_ECHO` | | Default `INFO` / `false` |
-| `LLM_PROVIDER` | | `gemini` (default) or `mock` |
-| `LLM_API_KEY` | | Gemini API key; empty → mock provider |
+| `LLM_PROVIDER` | | `groq` (default: Groq → Gemini → mock), `gemini` or `mock` |
+| `GROQ_API_KEY` | for Groq | Groq API key (primary provider); empty → Groq skipped |
+| `GROQ_MODEL` | | Default `openai/gpt-oss-120b` |
+| `LLM_API_KEY` | for Gemini | Gemini API key (secondary provider); empty → Gemini skipped |
 | `LLM_MODEL` | | Default `gemini-3.8-flash` |
 | `LLM_TIMEOUT_SECONDS` | | Default 30 |
-| `LLM_FALLBACK_TO_MOCK` | | Default `true`: on Gemini failure return a flagged mock draft instead of 503 |
+| `LLM_FALLBACK_TO_MOCK` | | Default `true`: when every real provider fails, return a flagged mock draft instead of 503 |
 | `SMTP_TIMEOUT_SECONDS`, `SMTP_RETRY_BACKOFF_SECONDS` | | Defaults 15 / 1 |
 | `SMTP_ALLOW_PRIVATE_HOSTS` | | App default `true` (local test servers); must be `false` in production; Compose defaults it to `false` |
 | `EMAIL_DELIVERY_MODE` | | `sync` (default) or `celery` |
@@ -893,8 +932,8 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 * **Secrets never in responses**: separate request/response schemas; accounts expose only
   `password_configured` / `oauth_connected`; 422 errors never echo submitted values.
 * **Secrets never in logs or history**: nothing logs credentials; a redaction filter additionally
-  masks bearer tokens, JWTs, `password=`/`token=`/`api_key=` values, Google API keys and database URL
-  passwords; the OAuth callback query string is redacted from access logs. History and the LLM
+  masks bearer tokens, JWTs, `password=`/`token=`/`api_key=` values, Google and Groq API keys and database
+  URL passwords; the OAuth callback query string is redacted from access logs. History and the LLM
   context never contain credentials (tested).
 * **SMTP**: TLS with certificate verification; single-mechanism AUTH; raw server replies not
   exposed; SSRF guard against private hosts (`SMTP_ALLOW_PRIVATE_HOSTS=false`).
@@ -916,7 +955,7 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 
 ## 29. Production considerations
 
-* **Secrets manager**: keep `SECRET_KEY`, `ENCRYPTION_KEY`, `LLM_API_KEY`, `GOOGLE_CLIENT_SECRET` and
+* **Secrets manager**: keep `SECRET_KEY`, `ENCRYPTION_KEY`, `GROQ_API_KEY`, `LLM_API_KEY`, `GOOGLE_CLIENT_SECRET` and
   the database password in AWS Secrets Manager / GCP Secret Manager / Azure Key Vault / HashiCorp
   Vault and inject them at runtime — not in images or files.
 * **KMS envelope encryption** for stored credentials (per-record data keys wrapped by a KMS key),
@@ -942,6 +981,7 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 | **Gmail API delivery** | Verified: account Test email, and a real background send (API → Redis → Celery worker → Gmail API → `SENT`, 1 attempt, token refreshed automatically) |
 | Local SMTP delivery (Mailpit / local SMTP server) | Verified |
 | **Real Gmail SMTP delivery** | **Not demonstrated** — a working Gmail App Password was not available (Gmail rejected the configured password); covered by automated tests with a fake SMTP server |
+| **Live Groq generation** | Verified (2026-09-29: `provider: groq`, `fallback_used: false`, model `openai/gpt-oss-120b`) |
 | **Live Gemini generation** | Verified once (2026-09-29: `provider: gemini`, `fallback_used: false`); earlier attempts returned HTTP 503 `UNAVAILABLE` (high demand), handled by the mock fallback |
 | Gmail OAuth inside the Docker stack | Not configured / not tested (verified with the local backend, a local Celery worker and the Docker Redis) |
 | Outlook OAuth | Not implemented |
@@ -959,7 +999,7 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 * **Outlook / Microsoft 365 OAuth is not implemented** (Outlook works through SMTP if the mailbox
   allows SMTP AUTH).
 * Real Gmail SMTP delivery was not demonstrated (section 30).
-* The Gemini free tier can return HTTP 503 `UNAVAILABLE` under high demand; drafts then come from the mock fallback (flagged).
+* Live LLM providers can be unavailable or rate limited (Gemini has returned HTTP 503 `UNAVAILABLE` under high demand); drafts then come from the next provider in the chain or the mock (flagged).
 * Gmail OAuth in Google's Testing mode: test users only, unverified-app warning, refresh tokens
   expire after 7 days.
 * JWT in `localStorage` (XSS-readable); no refresh tokens or server-side revocation; logout is client-side.
@@ -981,7 +1021,7 @@ with code locations and tests. Summary:
 | Email signature, auto-available to the agent | §13, §16 |
 | Sending preferences (sender, reply-to, signature, auto-append, format, limits, CC/BCC, extensible) | §14 |
 | Agent uses company context | §16 |
-| Free-tier LLM + configuration + mock fallback | §17 |
+| Free-tier LLM (Groq primary, Gemini secondary) + configuration + mock fallback | §17 |
 | Sends through the user's configured account (no system sender) | §18 |
 | FastAPI, PostgreSQL, Pydantic, SQLAlchemy, error handling, env secrets | §3–4, §22, §24 |
 | Database design for multiple companies | §6, §25 |
@@ -1018,7 +1058,7 @@ with code locations and tests. Summary:
 5. **Templates** → create a template with `{{ recipient_name }}` / `{{ company_name }}` → preview.
 6. **AI Email Agent** → choose **Send from** (or keep the default account) → recipient, purpose,
    optional template → **Generate Email** → note the draft
-   uses only profile facts and shows the provider (`gemini` or `mock` + fallback warning) → edit →
+   uses only profile facts and shows the provider (`groq`, or `gemini` / `mock` with a fallback warning) → edit →
    **Send Email**.
 7. **Email History** → the email appears as `QUEUED` → `SENT` (background mode) or `SENT` / `FAILED`,
    with the account used; account tests carry a *Test* badge.

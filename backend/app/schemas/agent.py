@@ -39,9 +39,10 @@ class GenerateEmailResponse(BaseModel):
     subject: str
     body: str
     recipient_email: EmailStr
-    provider: str = Field(description="Which LLM provider produced the email (e.g. gemini, mock).")
+    provider: str = Field(description="Which LLM provider produced the email: groq, gemini or mock.")
     fallback_used: bool = Field(
-        default=False, description="True if the real provider failed and the mock provider was used."
+        default=False,
+        description="True if the primary provider failed and a fallback (Gemini after Groq, or the mock) wrote the email.",
     )
     warning: str | None = None
     signature_policy: str = Field(

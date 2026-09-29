@@ -18,6 +18,7 @@ os.environ["SECRET_KEY"] = "test-secret-key-that-is-only-used-in-tests"
 os.environ["ENCRYPTION_KEY"] = ""
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["LLM_API_KEY"] = ""
+os.environ["GROQ_API_KEY"] = ""  # never call the real Groq API in automated tests
 os.environ["SMTP_RETRY_BACKOFF_SECONDS"] = "0"
 os.environ["EMAIL_DELIVERY_MODE"] = "sync"
 os.environ["CELERY_BROKER_URL"] = "memory://"  # never a real Redis in automated tests
