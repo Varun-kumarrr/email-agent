@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { AuthCard } from "@/components/AuthCard";
 import { Alert, Field, SubmitButton } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 
@@ -75,12 +76,17 @@ export default function RegisterPage() {
   );
 
   return (
-    <div className="auth-wrap">
-      <div className="card auth-card">
-        <h1>Create account</h1>
-        <p className="subtitle">Set up your company&apos;s email agent.</p>
+    <AuthCard
+      title="Create account"
+      subtitle="Set up your company's email agent."
+      footer={
+        <>
+          Already registered? <Link href="/login" className="font-semibold">Log in</Link>
+        </>
+      }
+    >
         <Alert kind="error">{error}</Alert>
-        <form className="stack" onSubmit={onSubmit} noValidate>
+        <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
           <Field label="Name" htmlFor="name" error={errors.name}>
             {input("name", name, setName, "text", "name")}
           </Field>
@@ -93,12 +99,10 @@ export default function RegisterPage() {
           <Field label="Confirm password" htmlFor="confirm" error={errors.confirm}>
             {input("confirm", confirm, setConfirm, "password", "new-password")}
           </Field>
-          <SubmitButton loading={submitting}>Create account</SubmitButton>
+          <SubmitButton loading={submitting} className="w-full">
+            Create account
+          </SubmitButton>
         </form>
-        <p className="muted" style={{ marginTop: 16 }}>
-          Already registered? <Link href="/login">Log in</Link>
-        </p>
-      </div>
-    </div>
+    </AuthCard>
   );
 }

@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { ListEditor } from "@/components/ListEditor";
-import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
+import { Alert, Card, CardHeader, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
 import { api, ApiError, isNotFound } from "@/lib/api";
 import type {
   Company,
@@ -167,10 +167,23 @@ export default function CompanyPage() {
     }
   }
 
-  if (loading) return <LoadingScreen />;
+  const header = (
+    <PageHeader
+      title="Company Profile"
+      description="The context the AI agent uses to write your emails. Only include facts you want to appear in emails."
+    />
+  );
 
-  const text = (key: TextKey, label: string, opts: { type?: string; hint?: string; placeholder?: string } = {}) => (
-    <Field label={label} htmlFor={key} error={errors[key]} hint={opts.hint}>
+  if (loading)
+    return (
+      <>
+        {header}
+        <LoadingScreen />
+      </>
+    );
+
+  const text = (key: TextKey, label: string, opts: { type?: string; hint?: string; placeholder?: string; className?: string } = {}) => (
+    <Field label={label} htmlFor={key} error={errors[key]} hint={opts.hint} className={opts.className}>
       <input
         id={key}
         type={opts.type ?? "text"}
@@ -184,104 +197,126 @@ export default function CompanyPage() {
 
   return (
     <>
-      <PageHeader
-        title="Company Profile"
-        description="This information is the context the AI agent uses to write your emails. Only include facts you want in emails."
-      />
+      {header}
       {!exists && <Alert kind="info">You haven&apos;t created a company profile yet. Fill in the form to create one.</Alert>}
-      <Alert kind="success">{success}</Alert>
-      <Alert kind="error">{error}</Alert>
+      <Alert kind="success" onDismiss={success ? () => setSuccess("") : undefined}>
+        {success}
+      </Alert>
+      <Alert kind="error" onDismiss={error ? () => setError("") : undefined}>
+        {error}
+      </Alert>
 
       <form onSubmit={onSubmit} noValidate>
-        <div className="card">
-          <h2>Company</h2>
-          <div className="grid grid-2">
-            {text("name", "Company name *", { placeholder: "ABC Technologies" })}
-            {text("website", "Website", { placeholder: "https://www.example.com" })}
-            <Field label="Description / overview *" htmlFor="description" error={errors.description} className="span-2">
-              <textarea
-                id="description"
-                value={form.description}
-                onChange={set("description")}
-                placeholder="What the company does and for whom."
-                className={errors.description ? "invalid" : ""}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <Card className="lg:col-span-2">
+            <CardHeader icon="building" title="Company information" description="Who you are and what you do." />
+            <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+              {text("name", "Company name *", { placeholder: "ABC Technologies" })}
+              {text("website", "Website", { placeholder: "https://www.example.com" })}
+              <Field label="Description / overview *" htmlFor="description" error={errors.description} className="sm:col-span-2">
+                <textarea
+                  id="description"
+                  value={form.description}
+                  onChange={set("description")}
+                  placeholder="What the company does and for whom."
+                  className={errors.description ? "invalid" : ""}
+                />
+              </Field>
+              {text("industry", "Industry", { placeholder: "Software" })}
+              {text("location", "Location", { placeholder: "Bengaluru, India" })}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon="zap" title="Products & services" meta={form.services.length || undefined} />
+            <div className="p-5">
+              <ListEditor<ServiceItem>
+                name="services"
+                label="Services / products"
+                items={form.services}
+                fields={[
+                  { key: "name", placeholder: "Name" },
+                  { key: "description", placeholder: "Short description (optional)" },
+                ]}
+                empty={{ name: "", description: "" }}
+                onChange={(services) => setForm((f) => ({ ...f, services }))}
+                errors={errors}
+                addLabel="Add service"
+                emptyText="No products or services yet."
               />
-            </Field>
-            {text("industry", "Industry", { placeholder: "Software" })}
-            {text("location", "Location", { placeholder: "Bengaluru, India" })}
-          </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon="target" title="Target customers" meta={form.target_customers.length || undefined} />
+            <div className="p-5">
+              <ListEditor<TargetCustomerItem>
+                name="target_customers"
+                label="Target customers"
+                items={form.target_customers}
+                fields={[
+                  { key: "segment", placeholder: "Segment" },
+                  { key: "description", placeholder: "Details (optional)" },
+                ]}
+                empty={{ segment: "", description: "" }}
+                onChange={(target_customers) => setForm((f) => ({ ...f, target_customers }))}
+                errors={errors}
+                addLabel="Add target customer"
+                emptyText="No target customers yet."
+              />
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon="star" title="Value propositions" meta={form.value_propositions.length || undefined} />
+            <div className="p-5">
+              <ListEditor<ValuePropositionItem>
+                name="value_propositions"
+                label="Value propositions"
+                items={form.value_propositions}
+                fields={[{ key: "statement", placeholder: "Value proposition" }]}
+                empty={{ statement: "" }}
+                onChange={(value_propositions) => setForm((f) => ({ ...f, value_propositions }))}
+                errors={errors}
+                addLabel="Add value proposition"
+                emptyText="No value propositions yet."
+              />
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon="user" title="Contact information" />
+            <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              {text("contact_person", "Contact person")}
+              {text("contact_email", "Contact email", { type: "email" })}
+              {text("contact_phone", "Phone", { placeholder: "+91 98765 43210" })}
+              {text("address", "Address")}
+            </div>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader icon="link" title="Social media & links" meta={form.social_links.length || undefined} />
+            <div className="p-5">
+              <ListEditor<SocialLinkItem>
+                name="social_links"
+                label="Links"
+                items={form.social_links}
+                fields={[
+                  { key: "platform", placeholder: "Platform (e.g. LinkedIn)" },
+                  { key: "url", placeholder: "https://…", type: "url" },
+                ]}
+                empty={{ platform: "", url: "" }}
+                onChange={(social_links) => setForm((f) => ({ ...f, social_links }))}
+                errors={errors}
+                addLabel="Add link"
+                emptyText="No links yet."
+              />
+            </div>
+          </Card>
         </div>
 
-        <div className="card">
-          <h2>Offering</h2>
-          <div className="grid">
-            <ListEditor<ServiceItem>
-              name="services"
-              label="Services / products"
-              items={form.services}
-              fields={[
-                { key: "name", placeholder: "Name" },
-                { key: "description", placeholder: "Short description (optional)" },
-              ]}
-              empty={{ name: "", description: "" }}
-              onChange={(services) => setForm((f) => ({ ...f, services }))}
-              errors={errors}
-              addLabel="Add service"
-            />
-            <ListEditor<TargetCustomerItem>
-              name="target_customers"
-              label="Target customers"
-              items={form.target_customers}
-              fields={[
-                { key: "segment", placeholder: "Segment" },
-                { key: "description", placeholder: "Details (optional)" },
-              ]}
-              empty={{ segment: "", description: "" }}
-              onChange={(target_customers) => setForm((f) => ({ ...f, target_customers }))}
-              errors={errors}
-              addLabel="Add target customer"
-            />
-            <ListEditor<ValuePropositionItem>
-              name="value_propositions"
-              label="Value propositions"
-              items={form.value_propositions}
-              fields={[{ key: "statement", placeholder: "Value proposition" }]}
-              empty={{ statement: "" }}
-              onChange={(value_propositions) => setForm((f) => ({ ...f, value_propositions }))}
-              errors={errors}
-              addLabel="Add value proposition"
-            />
-          </div>
-        </div>
-
-        <div className="card">
-          <h2>Contact information</h2>
-          <div className="grid grid-2">
-            {text("contact_person", "Contact person")}
-            {text("contact_email", "Contact email", { type: "email" })}
-            {text("contact_phone", "Phone", { placeholder: "+91 98765 43210" })}
-            {text("address", "Address")}
-          </div>
-        </div>
-
-        <div className="card">
-          <h2>Social media & links</h2>
-          <ListEditor<SocialLinkItem>
-            name="social_links"
-            label="Links"
-            items={form.social_links}
-            fields={[
-              { key: "platform", placeholder: "Platform (e.g. LinkedIn)" },
-              { key: "url", placeholder: "https://…", type: "url" },
-            ]}
-            empty={{ platform: "", url: "" }}
-            onChange={(social_links) => setForm((f) => ({ ...f, social_links }))}
-            errors={errors}
-            addLabel="Add link"
-          />
-        </div>
-
-        <div className="form-actions">
+        <div className="sticky bottom-0 z-10 mt-5 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-xl sm:border sm:bg-white/95 sm:shadow-sm">
+          <p className="mr-auto hidden text-xs text-slate-500 sm:block">Changes are used by the AI agent as soon as they are saved.</p>
           <SubmitButton loading={saving}>{exists ? "Save changes" : "Create company profile"}</SubmitButton>
         </div>
       </form>

@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
+import { Icon } from "@/components/Icon";
+import { Alert, Badge, buttonClass, Card, CardHeader, EmptyState, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { EmailFormat, EmailTemplate, EmailTemplateInput, TemplatePreview } from "@/lib/types";
 
@@ -169,11 +171,24 @@ export default function TemplatesPage() {
     }
   }
 
-  if (loading) return <LoadingScreen />;
+  const header = (
+    <PageHeader
+      title="Email Templates"
+      description="Reusable emails with {{ variable }} placeholders. Use one on the AI Email Agent page to base a draft on it."
+    />
+  );
+
+  if (loading)
+    return (
+      <>
+        {header}
+        <LoadingScreen />
+      </>
+    );
   if (noCompany) {
     return (
       <>
-        <PageHeader title="Email Templates" />
+        {header}
         <NeedsCompany />
       </>
     );
@@ -184,162 +199,183 @@ export default function TemplatesPage() {
 
   return (
     <>
-      <PageHeader
-        title="Email Templates"
-        description="Reusable emails with {{ variable }} placeholders. Pick one on the AI Email Agent page to base a draft on it."
-      />
-      <Alert kind="success">{success}</Alert>
-      <Alert kind="error">{error}</Alert>
+      {header}
+      <Alert kind="success" onDismiss={success ? () => setSuccess("") : undefined}>
+        {success}
+      </Alert>
+      <Alert kind="error" onDismiss={error ? () => setError("") : undefined}>
+        {error}
+      </Alert>
 
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0 }}>Your templates</h2>
-          <button type="button" className="btn" onClick={startNew}>
-            + New template
-          </button>
-        </div>
+      <Card>
+        <CardHeader
+          icon="fileText"
+          title="Your templates"
+          meta={templates.length ? `${templates.length} total` : undefined}
+          actions={
+            <button type="button" className={buttonClass("primary", "sm")} onClick={startNew}>
+              <Icon name="plus" className="size-3.5" /> Create template
+            </button>
+          }
+        />
         {templates.length === 0 ? (
-          <p className="muted">No templates yet.</p>
+          <EmptyState
+            icon="fileText"
+            title="No templates yet"
+            description="Create a reusable template for emails you send often, then use it in the AI Email Agent."
+          />
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Format</th>
-                  <th>Variables</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {templates.map((t) => (
-                  <tr key={t.id}>
-                    <td>
-                      <strong>{t.name}</strong>
-                      {t.description && <div className="muted">{t.description}</div>}
-                    </td>
-                    <td>{t.category ?? "—"}</td>
-                    <td>{t.content_type === "HTML" ? "HTML" : "Plain text"}</td>
-                    <td className="muted">{t.variables.join(", ") || "—"}</td>
-                    <td>
-                      <span className={`badge ${t.is_active ? "badge-success" : ""}`}>{t.is_active ? "Active" : "Inactive"}</span>
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <button className="btn btn-secondary btn-small" onClick={() => openPreview(t)}>
-                          Preview
-                        </button>
-                        <button className="btn btn-secondary btn-small" onClick={() => startEdit(t)}>
-                          Edit
-                        </button>
-                        <button className="btn btn-danger btn-small" onClick={() => remove(t)}>
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+            {templates.map((t) => (
+              <article key={t.id} className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-semibold text-slate-900">{t.name}</h3>
+                  <Badge tone={t.is_active ? "success" : "neutral"}>{t.is_active ? "Active" : "Inactive"}</Badge>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {t.category && <Badge tone="info">{t.category}</Badge>}
+                  <Badge>{t.content_type === "HTML" ? "HTML" : "Plain text"}</Badge>
+                </div>
+                {t.description && <p className="mt-2 text-sm text-slate-600">{t.description}</p>}
+                <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2">
+                  <p className="line-clamp-3 text-xs whitespace-pre-line text-slate-600">{t.body_template}</p>
+                </div>
+                {t.variables.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-1">
+                    {t.variables.map((v) => (
+                      <code key={v} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
+                        {v}
+                      </code>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-3 text-xs text-slate-400">Updated {new Date(t.updated_at).toLocaleDateString()}</p>
+                <div className="mt-auto flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                  {t.is_active && (
+                    <Link href={`/agent?template=${encodeURIComponent(t.id)}`} className={buttonClass("primary", "sm")}>
+                      <Icon name="sparkles" className="size-3.5" /> Use
+                    </Link>
+                  )}
+                  <button className={buttonClass("secondary", "sm")} onClick={() => openPreview(t)}>
+                    <Icon name="eye" className="size-3.5" /> Preview
+                  </button>
+                  <button className={buttonClass("secondary", "sm")} onClick={() => startEdit(t)}>
+                    <Icon name="edit" className="size-3.5" /> Edit
+                  </button>
+                  <button
+                    className={buttonClass("ghost", "sm", "ml-auto px-2 text-red-600 hover:bg-red-50 hover:text-red-700")}
+                    onClick={() => remove(t)}
+                    aria-label={`Delete template ${t.name}`}
+                    title="Delete"
+                  >
+                    <Icon name="trash" className="size-3.5" />
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         )}
-      </div>
+      </Card>
 
       {editing !== null && (
-        <form className="card" onSubmit={onSave} noValidate>
-          <h2>{editing === "new" ? "New template" : `Edit ${editing.name}`}</h2>
-          <div className="grid grid-2">
-            <Field label="Name *" htmlFor="name" error={errors.name}>
-              <input id="name" value={form.name} onChange={setField("name")} className={errors.name ? "invalid" : ""} />
-            </Field>
-            <Field label="Category" htmlFor="category" error={errors.category}>
-              <input id="category" value={form.category ?? ""} onChange={setField("category")} placeholder="Sales" />
-            </Field>
-            <Field label="Description" htmlFor="description" error={errors.description} className="span-2">
-              <input id="description" value={form.description ?? ""} onChange={setField("description")} />
-            </Field>
-            <Field label="Subject *" htmlFor="subject_template" error={errors.subject_template} className="span-2">
-              <input
-                id="subject_template"
-                value={form.subject_template}
-                onChange={setField("subject_template")}
-                className={errors.subject_template ? "invalid" : ""}
-              />
-            </Field>
-            <Field
-              label="Body *"
-              htmlFor="body_template"
-              error={errors.body_template}
-              className="span-2"
-              hint={`Placeholders: {{ variable_name }} (letters, digits, underscores). Filled automatically: ${builtins.join(", ")}.`}
-            >
-              <textarea
-                id="body_template"
-                rows={10}
-                value={form.body_template}
-                onChange={setField("body_template")}
-                className={errors.body_template ? "invalid" : ""}
-              />
-            </Field>
-            <Field label="Format" htmlFor="content_type">
-              <select id="content_type" value={form.content_type} onChange={(e) => setForm((f) => ({ ...f, content_type: e.target.value as EmailFormat }))}>
-                <option value="PLAIN_TEXT">Plain text</option>
-                <option value="HTML">HTML</option>
-              </select>
-            </Field>
-            <label className="checkbox" style={{ alignSelf: "end" }}>
-              <input type="checkbox" checked={form.is_active} onChange={setField("is_active")} />
-              Active
-            </label>
-            <div className="span-2 muted">Variables in this template: {formVariables.join(", ") || "none"}</div>
-          </div>
-          <div className="form-actions">
-            <SubmitButton loading={saving}>{editing === "new" ? "Create template" : "Save template"}</SubmitButton>
-            <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+        <Card className="mt-5">
+          <form onSubmit={onSave} noValidate>
+            <CardHeader icon={editing === "new" ? "plus" : "edit"} title={editing === "new" ? "Create template" : `Edit ${editing.name}`} />
+            <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+              <Field label="Name *" htmlFor="name" error={errors.name}>
+                <input id="name" value={form.name} onChange={setField("name")} className={errors.name ? "invalid" : ""} />
+              </Field>
+              <Field label="Category" htmlFor="category" error={errors.category}>
+                <input id="category" value={form.category ?? ""} onChange={setField("category")} placeholder="Sales" />
+              </Field>
+              <Field label="Description" htmlFor="description" error={errors.description} className="sm:col-span-2">
+                <input id="description" value={form.description ?? ""} onChange={setField("description")} />
+              </Field>
+              <Field label="Subject *" htmlFor="subject_template" error={errors.subject_template} className="sm:col-span-2">
+                <input
+                  id="subject_template"
+                  value={form.subject_template}
+                  onChange={setField("subject_template")}
+                  className={errors.subject_template ? "invalid" : ""}
+                />
+              </Field>
+              <Field
+                label="Body *"
+                htmlFor="body_template"
+                error={errors.body_template}
+                className="sm:col-span-2"
+                hint={`Placeholders: {{ variable_name }} (letters, digits, underscores). Filled automatically: ${builtins.join(", ")}.`}
+              >
+                <textarea
+                  id="body_template"
+                  rows={10}
+                  value={form.body_template}
+                  onChange={setField("body_template")}
+                  className={errors.body_template ? "invalid" : ""}
+                />
+              </Field>
+              <Field label="Format" htmlFor="content_type">
+                <select id="content_type" value={form.content_type} onChange={(e) => setForm((f) => ({ ...f, content_type: e.target.value as EmailFormat }))}>
+                  <option value="PLAIN_TEXT">Plain text</option>
+                  <option value="HTML">HTML</option>
+                </select>
+              </Field>
+              <label className="flex items-center gap-2 self-end pb-2 text-sm font-medium text-slate-700">
+                <input type="checkbox" checked={form.is_active} onChange={setField("is_active")} />
+                Active
+              </label>
+              <p className="text-xs text-slate-500 sm:col-span-2">Variables in this template: {formVariables.join(", ") || "none"}</p>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
+              <button type="button" className={buttonClass("secondary")} onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+              <SubmitButton loading={saving}>{editing === "new" ? "Create template" : "Save template"}</SubmitButton>
+            </div>
+          </form>
+        </Card>
       )}
 
       {previewFor && (
-        <div className="card">
-          <h2>Preview: {previewFor.name}</h2>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Company, sender and recipient values are filled automatically; enter the rest.
-          </p>
-          <div className="grid grid-2">
-            {Object.keys(previewValues).map((name) => (
-              <Field key={name} label={name} htmlFor={`pv-${name}`}>
-                <input
-                  id={`pv-${name}`}
-                  value={previewValues[name]}
-                  onChange={(e) => setPreviewValues((v) => ({ ...v, [name]: e.target.value }))}
-                />
-              </Field>
-            ))}
-          </div>
-          <div className="form-actions">
-            <SubmitButton type="button" loading={previewing} onClick={runPreview}>
+        <Card className="mt-5">
+          <CardHeader
+            icon="eye"
+            title={`Preview: ${previewFor.name}`}
+            description="Company, sender and recipient values are filled automatically; enter the rest."
+            actions={
+              <button type="button" className={buttonClass("ghost", "sm")} onClick={() => setPreviewFor(null)} aria-label="Close preview">
+                <Icon name="close" className="size-3.5" />
+              </button>
+            }
+          />
+          <div className="space-y-4 p-5">
+            {Object.keys(previewValues).length > 0 && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {Object.keys(previewValues).map((name) => (
+                  <Field key={name} label={name} htmlFor={`pv-${name}`}>
+                    <input id={`pv-${name}`} value={previewValues[name]} onChange={(e) => setPreviewValues((v) => ({ ...v, [name]: e.target.value }))} />
+                  </Field>
+                ))}
+              </div>
+            )}
+            <SubmitButton type="button" variant="secondary" loading={previewing} onClick={runPreview}>
               Render preview
             </SubmitButton>
-          </div>
-          {preview && (
-            <div style={{ marginTop: 14 }}>
-              {preview.missing_variables.length > 0 && (
-                <Alert kind="warning">Unfilled: {preview.missing_variables.join(", ")}</Alert>
-              )}
-              <div className="muted">Subject</div>
-              <div className="preview" style={{ marginBottom: 10 }}>
-                {preview.subject}
+            {preview && (
+              <div className="space-y-3">
+                {preview.missing_variables.length > 0 && <Alert kind="warning">Unfilled: {preview.missing_variables.join(", ")}</Alert>}
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-2.5 text-sm">
+                    <span className="text-slate-500">Subject: </span>
+                    <span className="font-semibold text-slate-900">{preview.subject}</span>
+                  </div>
+                  <pre className="px-4 py-3 font-sans text-sm whitespace-pre-wrap text-slate-700">{preview.body}</pre>
+                </div>
+                {preview.content_type === "HTML" && <p className="text-xs text-slate-500">Shown as HTML source.</p>}
               </div>
-              <div className="muted">Body {preview.content_type === "HTML" ? "(HTML source)" : ""}</div>
-              <div className="preview">{preview.body}</div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        </Card>
       )}
     </>
   );

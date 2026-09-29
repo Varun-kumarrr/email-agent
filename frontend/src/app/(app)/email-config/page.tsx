@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
+import { Alert, Badge, Card, CardHeader, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
 import { api, ApiError, isNotFound } from "@/lib/api";
 import type { EmailConfig, EmailConfigInput, SecurityType, SmtpTestResult } from "@/lib/types";
 
@@ -170,11 +170,24 @@ export default function EmailConfigPage() {
     }
   }
 
-  if (loading) return <LoadingScreen />;
+  const header = (
+    <PageHeader
+      title="Email Configuration"
+      description="Your company's primary SMTP account. All emails are sent from your own accounts — there is no shared system sender."
+    />
+  );
+
+  if (loading)
+    return (
+      <>
+        {header}
+        <LoadingScreen />
+      </>
+    );
   if (noCompany) {
     return (
       <>
-        <PageHeader title="Email Configuration" />
+        {header}
         <NeedsCompany />
       </>
     );
@@ -196,46 +209,43 @@ export default function EmailConfigPage() {
 
   return (
     <>
-      <PageHeader
-        title="Email Configuration"
-        description="Your company's primary SMTP account. All emails are sent from your own accounts — there is no shared system sender."
-      />
+      {header}
       <Alert kind="info">
-        This page edits your primary SMTP account. To add more accounts (Gmail, Outlook, other SMTP servers) or
-        choose the default, use <Link href="/email-accounts">Email Accounts</Link>.
+        This page edits your primary SMTP account. To add more accounts (Gmail, Outlook, other SMTP servers) or choose the default, use{" "}
+        <Link href="/email-accounts">Email Accounts</Link>.
       </Alert>
       <Alert kind="success">{success}</Alert>
       <Alert kind="error">{error}</Alert>
 
       {config && (
-        <div className="card">
-          <div className="grid grid-3">
-            <div>
-              <div className="muted">Password configured</div>
-              <strong>{config.password_configured ? "Yes" : "No"}</strong>
-            </div>
-            <div>
-              <div className="muted">Last test</div>
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">Password configured</p>
+            <p className="mt-1 font-semibold text-slate-900">{config.password_configured ? "Yes" : "No"}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">Last test</p>
+            <div className="mt-1">
               {config.last_test_success === null ? (
-                <span className="badge">Not tested</span>
+                <Badge>Not tested</Badge>
               ) : config.last_test_success ? (
-                <span className="badge badge-success">Passed</span>
+                <Badge tone="success">Passed</Badge>
               ) : (
-                <span className="badge badge-danger">Failed</span>
+                <Badge tone="danger">Failed</Badge>
               )}
             </div>
-            <div>
-              <div className="muted">Tested at</div>
-              <span>{formatDate(config.last_tested_at) || "—"}</span>
-            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">Tested at</p>
+            <p className="mt-1 font-semibold text-slate-900">{formatDate(config.last_tested_at) || "—"}</p>
           </div>
         </div>
       )}
 
-      <form onSubmit={onSubmit} noValidate autoComplete="off">
-        <div className="card">
-          <h2>SMTP account</h2>
-          <div className="grid grid-2">
+      <Card>
+        <form onSubmit={onSubmit} noValidate autoComplete="off">
+          <CardHeader icon="server" title="SMTP account" />
+          <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
             {input("email", "Email address *", { type: "email", placeholder: "you@company.com" })}
             {input("sender_name", "Sender name *", { placeholder: "Anjali from ABC Technologies" })}
             {input("smtp_host", "SMTP host *", { placeholder: "smtp.gmail.com" })}
@@ -260,39 +270,41 @@ export default function EmailConfigPage() {
             })}
             {input("reply_to", "Reply-to email", { type: "email", hint: "Optional. Replies go here instead of the sender address." })}
           </div>
-          <div className="form-actions">
+          <div className="flex justify-end border-t border-slate-100 px-5 py-3.5">
             <SubmitButton loading={saving}>{config ? "Save changes" : "Save configuration"}</SubmitButton>
           </div>
-        </div>
-      </form>
+        </form>
+      </Card>
 
-      <div className="card">
-        <h2>Test email configuration</h2>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Sends a real test email through the saved SMTP settings{config ? "" : " (save them first)"}.
-        </p>
-        <div className="list-row">
-          <input
-            aria-label="Test recipient"
-            type="email"
-            placeholder="recipient@example.com"
-            value={testRecipient}
-            onChange={(e) => setTestRecipient(e.target.value)}
-            disabled={!config}
-          />
-          <SubmitButton type="button" loading={testing} disabled={!config} onClick={onTest}>
-            Test Email Configuration
-          </SubmitButton>
+      <Card className="mt-5">
+        <CardHeader
+          icon="send"
+          title="Test email configuration"
+          description={`Sends a real test email through the saved SMTP settings${config ? "" : " (save them first)"}.`}
+        />
+        <div className="space-y-3 p-5">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              aria-label="Test recipient"
+              type="email"
+              placeholder="recipient@example.com"
+              value={testRecipient}
+              onChange={(e) => setTestRecipient(e.target.value)}
+              disabled={!config}
+            />
+            <SubmitButton type="button" loading={testing} disabled={!config} onClick={onTest}>
+              Test Email Configuration
+            </SubmitButton>
+          </div>
+          <Alert kind="error">{testError}</Alert>
+          {testResult && (
+            <Alert kind={testResult.success ? "success" : "error"}>
+              {testResult.message}
+              {testResult.error_code ? ` (${testResult.error_code})` : ""}
+            </Alert>
+          )}
         </div>
-        <Alert kind="error">{testError}</Alert>
-        {testResult && (
-          <Alert kind={testResult.success ? "success" : "error"}>
-            {testResult.success ? "✓ " : "✗ "}
-            {testResult.message}
-            {testResult.error_code ? ` (${testResult.error_code})` : ""}
-          </Alert>
-        )}
-      </div>
+      </Card>
     </>
   );
 }

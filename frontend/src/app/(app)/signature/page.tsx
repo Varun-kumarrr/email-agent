@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
+import { Alert, buttonClass, Card, CardHeader, Field, LoadingScreen, PageHeader, SubmitButton, Switch } from "@/components/ui";
 import { api, ApiError, isNotFound } from "@/lib/api";
 
 const EXAMPLE = `Best Regards,
@@ -94,11 +94,19 @@ export default function SignaturePage() {
     }
   }
 
-  if (loading) return <LoadingScreen />;
+  const header = <PageHeader title="Email Signature" description="A reusable signature for AI drafts and outgoing emails." />;
+
+  if (loading)
+    return (
+      <>
+        {header}
+        <LoadingScreen />
+      </>
+    );
   if (noCompany) {
     return (
       <>
-        <PageHeader title="Email Signature" />
+        {header}
         <NeedsCompany />
       </>
     );
@@ -110,61 +118,82 @@ export default function SignaturePage() {
 
   return (
     <>
-      <PageHeader title="Email Signature" description="A reusable signature for AI drafts and outgoing emails." />
-      <Alert kind="success">{success}</Alert>
-      <Alert kind="error">{error}</Alert>
+      {header}
+      <Alert kind="success" onDismiss={success ? () => setSuccess("") : undefined}>
+        {success}
+      </Alert>
+      <Alert kind="error" onDismiss={error ? () => setError("") : undefined}>
+        {error}
+      </Alert>
 
-      <div className="grid grid-2">
-        <form className="card" onSubmit={onSubmit} noValidate>
-          <h2>Edit signature</h2>
-          <div className="stack">
-            <Field label="Signature text" htmlFor="signature_text" error={fieldError} hint={`${text.length}/2000 characters`}>
-              <textarea
-                id="signature_text"
-                rows={9}
-                value={text}
-                placeholder={EXAMPLE}
-                onChange={(e) => setText(e.target.value)}
-                className={fieldError ? "invalid" : ""}
-              />
-            </Field>
-            {!text && (
-              <button type="button" className="btn btn-secondary btn-small" onClick={() => setText(EXAMPLE)} style={{ alignSelf: "flex-start" }}>
-                Use example
-              </button>
-            )}
-            <label className="checkbox">
-              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-              Enabled
-            </label>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={appendAutomatically}
-                disabled={!enabled}
-                onChange={(e) => setAppendAutomatically(e.target.checked)}
-              />
-              Append automatically to outgoing emails
-            </label>
-          </div>
-          <div className="form-actions">
-            <SubmitButton loading={saving}>{exists ? "Save changes" : "Create signature"}</SubmitButton>
-            {exists && (
-              <SubmitButton type="button" className="btn btn-danger" loading={deleting} onClick={onDelete}>
-                Delete
-              </SubmitButton>
-            )}
-          </div>
-        </form>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card>
+          <form onSubmit={onSubmit} noValidate>
+            <CardHeader icon="pen" title="Email signature" meta={exists ? undefined : "Not created yet"} />
+            <div className="space-y-4 p-5">
+              <Field label="Signature text" htmlFor="signature_text" error={fieldError} hint={`${text.length}/2000 characters`}>
+                <textarea
+                  id="signature_text"
+                  rows={9}
+                  value={text}
+                  placeholder={EXAMPLE}
+                  onChange={(e) => setText(e.target.value)}
+                  className={fieldError ? "invalid" : ""}
+                />
+              </Field>
+              {!text && (
+                <button type="button" className={buttonClass("secondary", "sm")} onClick={() => setText(EXAMPLE)}>
+                  Use example
+                </button>
+              )}
+              <div className="space-y-3 rounded-lg border border-slate-200 p-3.5">
+                <Switch label="Enabled" description="Use this signature for drafts and emails." checked={enabled} onChange={setEnabled} />
+                <Switch
+                  label="Append automatically"
+                  description="Added once to every outgoing email."
+                  checked={appendAutomatically}
+                  disabled={!enabled}
+                  onChange={setAppendAutomatically}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
+              {exists && (
+                <SubmitButton type="button" variant="secondary" className="text-red-600! hover:bg-red-50! hover:text-red-700!" loading={deleting} onClick={onDelete}>
+                  Delete
+                </SubmitButton>
+              )}
+              <SubmitButton loading={saving}>{exists ? "Save signature" : "Create signature"}</SubmitButton>
+            </div>
+          </form>
+        </Card>
 
-        <div className="card">
-          <h2>Preview</h2>
-          <div className="preview">
-            <span className="muted">Hi Priya,{"\n\n"}…your email body…{"\n\n"}</span>
-            {enabled && text ? text : <span className="muted">(no signature)</span>}
+        <Card>
+          <CardHeader icon="eye" title="Preview" description={behaviour} />
+          <div className="p-5">
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <div className="space-y-1 border-b border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500">
+                <p>
+                  <span className="inline-block w-14 font-semibold text-slate-600">To</span> recipient@example.com
+                </p>
+                <p>
+                  <span className="inline-block w-14 font-semibold text-slate-600">Subject</span> Your email subject
+                </p>
+              </div>
+              <div className="px-4 py-4 text-sm leading-relaxed">
+                <p className="text-slate-400">Hi Priya,</p>
+                <p className="mt-3 text-slate-400">…your email body…</p>
+                <div className="mt-4 border-t border-dashed border-slate-200 pt-3">
+                  {enabled && text ? (
+                    <pre className="font-sans whitespace-pre-wrap text-slate-800">{text}</pre>
+                  ) : (
+                    <p className="text-slate-400 italic">(no signature)</p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <p className="muted" style={{ marginBottom: 0 }}>{behaviour}</p>
-        </div>
+        </Card>
       </div>
     </>
   );

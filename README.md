@@ -7,7 +7,7 @@ mailboxes — immediately or through a Celery background worker. Every send atte
 test email, is recorded in an email history with its delivery status.
 
 > Backend: Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2 · Alembic · Pydantic v2 · JWT · Celery · Redis
-> Frontend: Next.js 16 (App Router) · React 19 · TypeScript · plain CSS
+> Frontend: Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4
 > Email: SMTP (`smtplib`) · Gmail OAuth 2.0 + Gmail API
 > AI: Groq (primary, `openai/gpt-oss-120b`) → Google Gemini (secondary) → offline mock (final fallback), behind one provider interface
 
@@ -125,7 +125,7 @@ Backend layers:
 | Email | `smtplib` + `email`; httpx for the Gmail API | STARTTLS/SSL, MIME multipart; Gmail `users.messages.send` |
 | Background jobs | Celery 5.6 + Redis 7 | Queue emails, retry with backoff, keep the HTTP request fast |
 | AI | Groq Chat Completions (`openai/gpt-oss-120b`) and Google Gemini REST (`gemini-3.8-flash`) via httpx | Groq primary, Gemini secondary, mock final fallback; JSON output |
-| Frontend | Next.js 16, React 19, TypeScript | Routing, type safety, standalone production build |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4 | Routing, type safety, utility-first styling, standalone production build |
 | Tests | pytest, FastAPI TestClient, fakes for SMTP / Google / LLM | Run on a dedicated PostgreSQL test database |
 | Dev ops | Docker Compose | PostgreSQL, Redis, API, worker, frontend (+ optional Mailpit) |
 
@@ -165,8 +165,8 @@ email-agent/
 ├── frontend/
 │   ├── src/app/(auth)/            # login, register
 │   ├── src/app/(app)/             # dashboard, company, email-accounts, email-config (legacy info),
-│   │                              # signature, preferences, templates, agent, history (protected)
-│   ├── src/components/            # AuthProvider, RequireAuth, AppShell, ListEditor, ui
+│   │                              # signature, preferences, templates, agent, history, settings (protected)
+│   ├── src/components/            # AuthProvider, RequireAuth, AppShell, Workspace, Icon, ListEditor, ui
 │   ├── src/lib/                   # api.ts (API client), session.ts, types.ts, emails.ts
 │   ├── next.config.ts  Dockerfile  .env.example
 ├── docker-compose.yml  .env.example

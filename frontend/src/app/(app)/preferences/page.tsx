@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
+import { Alert, Card, CardHeader, cx, Field, LoadingScreen, PageHeader, SubmitButton, Switch } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { firstInvalidEmail, isEmail, parseEmailList } from "@/lib/emails";
 import type { EmailFormat, Preferences, PreferencesInput, Signature } from "@/lib/types";
@@ -125,16 +125,30 @@ export default function PreferencesPage() {
     }
   }
 
-  if (loading) return <LoadingScreen />;
+  const header = <PageHeader title="Email Preferences" description="Defaults applied when generating and sending emails." />;
+
+  if (loading)
+    return (
+      <>
+        {header}
+        <LoadingScreen />
+      </>
+    );
   if (noCompany) {
     return (
       <>
-        <PageHeader title="Email Preferences" />
+        {header}
         <NeedsCompany />
       </>
     );
   }
-  if (!form || !prefs) return <Alert kind="error">{error || "Could not load preferences."}</Alert>;
+  if (!form || !prefs)
+    return (
+      <>
+        {header}
+        <Alert kind="error">{error || "Could not load preferences."}</Alert>
+      </>
+    );
 
   const set = (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => (f ? { ...f, [key]: e.target.value } : f));
@@ -152,101 +166,127 @@ export default function PreferencesPage() {
     </Field>
   );
 
+  const summary = [
+    { label: "Sender used", value: prefs.effective_sender_name || "—" },
+    { label: "Reply-to used", value: prefs.effective_reply_to || "—" },
+    { label: "Sent today", value: `${prefs.sent_today} / ${prefs.daily_send_limit}`, note: `${prefs.remaining_today} left` },
+  ];
+
   return (
     <>
-      <PageHeader title="Email Preferences" description="Defaults applied when generating and sending emails." />
-      <Alert kind="success">{success}</Alert>
-      <Alert kind="error">{error}</Alert>
+      {header}
+      <Alert kind="success" onDismiss={success ? () => setSuccess("") : undefined}>
+        {success}
+      </Alert>
+      <Alert kind="error" onDismiss={error ? () => setError("") : undefined}>
+        {error}
+      </Alert>
 
-      <div className="card">
-        <div className="grid grid-3">
-          <div>
-            <div className="muted">Sender used</div>
-            <strong>{prefs.effective_sender_name || "—"}</strong>
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {summary.map((item) => (
+          <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">{item.label}</p>
+            <p className="mt-1 truncate font-semibold text-slate-900">
+              {item.value} {item.note && <span className="text-xs font-medium text-blue-600">· {item.note}</span>}
+            </p>
           </div>
-          <div>
-            <div className="muted">Reply-to used</div>
-            <strong>{prefs.effective_reply_to || "—"}</strong>
-          </div>
-          <div>
-            <div className="muted">Sent today</div>
-            <strong>
-              {prefs.sent_today} / {prefs.daily_send_limit}
-            </strong>{" "}
-            <span className="muted">({prefs.remaining_today} left)</span>
-          </div>
-        </div>
+        ))}
       </div>
 
       <form onSubmit={onSubmit} noValidate>
-        <div className="card">
-          <h2>Sender</h2>
-          <div className="grid grid-2">
-            {input("sender_name", "Sender name", { hint: "Leave blank to use the sending email account's sender name." })}
-            {input("reply_to", "Reply-to email", { type: "email", hint: "Leave blank to use the sending email account's reply-to." })}
-          </div>
-        </div>
-
-        <div className="card">
-          <h2>Signature</h2>
-          {signature ? (
-            <div className="stack">
-              <div className="preview">{signature.signature_text}</div>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={signature.enabled}
-                  onChange={(e) => setSignature({ ...signature, enabled: e.target.checked })}
-                />
-                Use this as the default signature
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={signature.append_automatically}
-                  disabled={!signature.enabled}
-                  onChange={(e) => setSignature({ ...signature, append_automatically: e.target.checked })}
-                />
-                Automatically append the signature to outgoing emails
-              </label>
-              <Link href="/signature">Edit signature text</Link>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <Card>
+            <CardHeader icon="user" title="Sender settings" description="Override the sending account's name and reply-to." />
+            <div className="space-y-4 p-5">
+              {input("sender_name", "Sender name", { hint: "Leave blank to use the sending email account's sender name." })}
+              {input("reply_to", "Reply-to email", { type: "email", hint: "Leave blank to use the sending email account's reply-to." })}
             </div>
-          ) : (
-            <p className="muted" style={{ margin: 0 }}>
-              No signature yet. <Link href="/signature">Create one</Link> to use it as your default.
-            </p>
-          )}
+          </Card>
+
+          <Card>
+            <CardHeader
+              icon="pen"
+              title="Default signature"
+              actions={
+                <Link href="/signature" className="text-xs font-semibold">
+                  {signature ? "Edit signature" : "Create one"}
+                </Link>
+              }
+            />
+            <div className="space-y-4 p-5">
+              {signature ? (
+                <>
+                  <pre className="max-h-32 overflow-auto rounded-lg bg-slate-50 px-3 py-2 font-sans text-xs whitespace-pre-wrap text-slate-600">
+                    {signature.signature_text}
+                  </pre>
+                  <Switch
+                    label="Use as the default signature"
+                    checked={signature.enabled}
+                    onChange={(value) => setSignature({ ...signature, enabled: value })}
+                  />
+                  <Switch
+                    label="Auto-append to outgoing emails"
+                    description="Added once when sending, never duplicated."
+                    checked={signature.append_automatically}
+                    disabled={!signature.enabled}
+                    onChange={(value) => setSignature({ ...signature, append_automatically: value })}
+                  />
+                </>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No signature yet. <Link href="/signature">Create one</Link> to use it as your default.
+                </p>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon="mail" title="Email format & CC / BCC" />
+            <div className="space-y-4 p-5">
+              <fieldset>
+                <legend className="mb-1.5 text-xs font-semibold text-slate-700">Default email format</legend>
+                <div className="inline-flex rounded-lg border border-slate-300 bg-slate-50 p-0.5" role="radiogroup">
+                  {(["PLAIN_TEXT", "HTML"] as EmailFormat[]).map((fmt) => (
+                    <label
+                      key={fmt}
+                      className={cx(
+                        "cursor-pointer rounded-md px-3.5 py-1.5 text-sm font-medium transition has-focus-visible:outline-2 has-focus-visible:outline-blue-500",
+                        form.default_format === fmt ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="default_format"
+                        value={fmt}
+                        checked={form.default_format === fmt}
+                        onChange={set("default_format")}
+                        className="sr-only"
+                      />
+                      {fmt === "HTML" ? "HTML" : "Plain text"}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <Field label="Default CC" htmlFor="default_cc" error={errors.default_cc} hint="Comma-separated addresses.">
+                <textarea id="default_cc" rows={2} value={form.default_cc} onChange={set("default_cc")} className={cx("min-h-0", errors.default_cc && "invalid")} />
+              </Field>
+              <Field label="Default BCC" htmlFor="default_bcc" error={errors.default_bcc} hint="Comma-separated addresses.">
+                <textarea id="default_bcc" rows={2} value={form.default_bcc} onChange={set("default_bcc")} className={cx("min-h-0", errors.default_bcc && "invalid")} />
+              </Field>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon="gauge" title="Sending limits" description="Protects your mailbox reputation." />
+            <div className="space-y-4 p-5">
+              {input("daily_send_limit", "Daily send limit", { type: "number", hint: "Emails per day (UTC). Test emails don't count." })}
+              {input("max_recipients_per_email", "Max recipients per email", { type: "number", hint: "To + CC + BCC." })}
+              {input("max_send_retries", "Retries on temporary errors", { type: "number", hint: "0–5 automatic retries." })}
+            </div>
+          </Card>
         </div>
 
-        <div className="card">
-          <h2>Format & recipients</h2>
-          <div className="grid grid-2">
-            <Field label="Default email format" htmlFor="default_format">
-              <select id="default_format" value={form.default_format} onChange={set("default_format")}>
-                <option value="PLAIN_TEXT">Plain text</option>
-                <option value="HTML">HTML</option>
-              </select>
-            </Field>
-            <div />
-            <Field label="Default CC" htmlFor="default_cc" error={errors.default_cc} hint="Comma-separated addresses.">
-              <textarea id="default_cc" rows={2} value={form.default_cc} onChange={set("default_cc")} className={errors.default_cc ? "invalid" : ""} />
-            </Field>
-            <Field label="Default BCC" htmlFor="default_bcc" error={errors.default_bcc} hint="Comma-separated addresses.">
-              <textarea id="default_bcc" rows={2} value={form.default_bcc} onChange={set("default_bcc")} className={errors.default_bcc ? "invalid" : ""} />
-            </Field>
-          </div>
-        </div>
-
-        <div className="card">
-          <h2>Sending limits</h2>
-          <div className="grid grid-3">
-            {input("daily_send_limit", "Daily send limit", { type: "number", hint: "Emails per day (UTC)." })}
-            {input("max_recipients_per_email", "Max recipients per email", { type: "number", hint: "To + CC + BCC." })}
-            {input("max_send_retries", "Retries on temporary errors", { type: "number", hint: "0–5 automatic retries." })}
-          </div>
-        </div>
-
-        <div className="form-actions">
+        <div className="sticky bottom-0 z-10 mt-5 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-xl sm:border sm:bg-white/95 sm:shadow-sm">
           <SubmitButton loading={saving}>Save preferences</SubmitButton>
         </div>
       </form>

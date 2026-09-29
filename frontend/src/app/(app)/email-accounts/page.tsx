@@ -4,7 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { isMissingCompany, NeedsCompany } from "@/components/NeedsCompany";
-import { Alert, Field, LoadingScreen, PageHeader, SubmitButton } from "@/components/ui";
+import { Icon } from "@/components/Icon";
+import { Alert, Badge, buttonClass, Card, CardHeader, cx, EmptyState, Field, LoadingScreen, PageHeader, Spinner, SubmitButton } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { isEmail } from "@/lib/emails";
 import type { EmailAccount, EmailAccountCreate, EmailProviderName, SecurityType, SmtpTestResult } from "@/lib/types";
@@ -281,11 +282,24 @@ function EmailAccountsContent() {
     }
   }
 
-  if (loading) return <LoadingScreen />;
+  const header = (
+    <PageHeader
+      title="Email Accounts"
+      description="Mailboxes your company sends from. Each email goes through the account you choose — never a shared system account."
+    />
+  );
+
+  if (loading)
+    return (
+      <>
+        {header}
+        <LoadingScreen />
+      </>
+    );
   if (noCompany) {
     return (
       <>
-        <PageHeader title="Email Accounts" />
+        {header}
         <NeedsCompany />
       </>
     );
@@ -308,196 +322,211 @@ function EmailAccountsContent() {
 
   return (
     <>
-      <PageHeader
-        title="Email Accounts"
-        description="Mailboxes your company sends from. Each email is sent through the account you choose — never a shared system account."
-      />
+      {header}
       {banner && (
-        <div className={`alert alert-${banner.kind}`} role={banner.kind === "error" ? "alert" : "status"} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <span>{banner.text}</span>
-          <button type="button" className="btn btn-secondary btn-small" onClick={() => router.replace("/email-accounts")}>
-            Dismiss
-          </button>
-        </div>
+        <Alert kind={banner.kind} onDismiss={() => router.replace("/email-accounts")}>
+          {banner.text}
+        </Alert>
       )}
-      <Alert kind="success">{success}</Alert>
-      <Alert kind="error">{error}</Alert>
+      <Alert kind="success" onDismiss={success ? () => setSuccess("") : undefined}>
+        {success}
+      </Alert>
+      <Alert kind="error" onDismiss={error ? () => setError("") : undefined}>
+        {error}
+      </Alert>
 
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0 }}>Your accounts</h2>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <SubmitButton type="button" className="btn btn-secondary" loading={connecting} onClick={connectGmail}>
-              Connect Gmail (OAuth)
-            </SubmitButton>
-            <button type="button" className="btn" onClick={startNew}>
-              + Add SMTP account
-            </button>
-          </div>
-        </div>
+      <Card>
+        <CardHeader
+          icon="mail"
+          title="Your accounts"
+          meta={accounts.length ? `${accounts.length} total` : undefined}
+          actions={
+            <>
+              <SubmitButton type="button" variant="secondary" size="sm" loading={connecting} onClick={connectGmail}>
+                {!connecting && <Icon name="link" className="size-3.5" />} Connect Gmail (OAuth)
+              </SubmitButton>
+              <button type="button" className={buttonClass("primary", "sm")} onClick={startNew}>
+                <Icon name="plus" className="size-3.5" /> Add SMTP account
+              </button>
+            </>
+          }
+        />
         {accounts.length === 0 ? (
-          <p className="muted">No email accounts yet. Add one to start sending.</p>
+          <EmptyState
+            icon="mail"
+            title="No email accounts configured"
+            description="Connect an email account to start sending. Use SMTP (Gmail, Outlook or any provider) or connect Gmail with OAuth."
+          />
         ) : (
-          <>
-            <div className="list-row" style={{ marginTop: 14, maxWidth: 520 }}>
-              <input
-                aria-label="Test recipient"
-                type="email"
-                placeholder="Test recipient (defaults to the account's own address)"
-                value={testRecipient}
-                onChange={(e) => setTestRecipient(e.target.value)}
-              />
+          <div className="p-5">
+            <div className="mb-4 max-w-md">
+              <Field label="Test recipient" htmlFor="test_recipient" hint="Where Test sends its email. Defaults to the account's own address.">
+                <input
+                  id="test_recipient"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={testRecipient}
+                  onChange={(e) => setTestRecipient(e.target.value)}
+                />
+              </Field>
             </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th>Provider</th>
-                    <th>Status</th>
-                    <th>Credentials</th>
-                    <th>Last test</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accounts.map((a) => (
-                    <tr key={a.id}>
-                      <td>
-                        <strong>{a.account_name}</strong>
-                        <div className="muted">{a.sender_name} &lt;{a.email_address}&gt;</div>
-                      </td>
-                      <td>{providerLabel(a)}</td>
-                      <td>
-                        {a.is_default && <span className="badge badge-info" style={{ marginRight: 4 }}>Default</span>}
-                        <span className={`badge ${a.is_active ? "badge-success" : ""}`}>{a.is_active ? "Active" : "Inactive"}</span>
-                      </td>
-                      <td>
-                        {a.account_type === "SMTP"
-                          ? `Password configured: ${a.password_configured ? "Yes" : "No"}`
-                          : `OAuth connected: ${a.oauth_connected ? "Yes" : "No"}`}
-                      </td>
-                      <td>
-                        {a.last_test_success === null ? (
-                          <span className="badge">Not tested</span>
-                        ) : a.last_test_success ? (
-                          <span className="badge badge-success">Passed</span>
-                        ) : (
-                          <span className="badge badge-danger">Failed</span>
-                        )}
-                        {testResults[a.id] && (
-                          <div className={testResults[a.id].success ? "muted" : "error"} style={{ fontSize: "0.82rem", maxWidth: 260 }}>
-                            {testResults[a.id].message}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <button className="btn btn-secondary btn-small" disabled={busy === a.id} onClick={() => runTest(a)}>
-                            Test
-                          </button>
-                          {!a.is_default && a.is_active && (
-                            <button
-                              className="btn btn-secondary btn-small"
-                              disabled={busy === a.id}
-                              onClick={() => act(a.id, () => api.setDefaultEmailAccount(a.id), `${a.account_name} is now the default account.`)}
-                            >
-                              Set default
-                            </button>
-                          )}
-                          <button
-                            className="btn btn-secondary btn-small"
-                            disabled={busy === a.id}
-                            onClick={() =>
-                              act(
-                                a.id,
-                                () => api.updateEmailAccount(a.id, { is_active: !a.is_active }),
-                                a.is_active ? "Account deactivated." : "Account activated.",
-                              )
-                            }
-                          >
-                            {a.is_active ? "Deactivate" : "Activate"}
-                          </button>
-                          <button className="btn btn-secondary btn-small" onClick={() => startEdit(a)}>
-                            Edit
-                          </button>
-                          <button
-                            className="btn btn-danger btn-small"
-                            disabled={busy === a.id}
-                            onClick={() => {
-                              if (window.confirm(`Delete ${a.account_name}? History keeps the sender address.`))
-                                act(a.id, () => api.deleteEmailAccount(a.id), "Account deleted.");
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {accounts.map((a) => (
+                <div
+                  key={a.id}
+                  className={cx(
+                    "flex flex-col rounded-xl border p-4 transition",
+                    a.is_default ? "border-blue-200 bg-blue-50/30" : "border-slate-200 bg-white",
+                    !a.is_active && "opacity-75",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cx(
+                        "grid size-10 shrink-0 place-items-center rounded-lg",
+                        a.account_type === "OAUTH" ? "bg-teal-50 text-teal-600" : "bg-blue-50 text-blue-600",
+                      )}
+                    >
+                      <Icon name={a.account_type === "OAUTH" ? "shield" : "server"} className="size-5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-slate-900">{a.account_name}</p>
+                      <p className="truncate text-sm text-slate-600">{a.email_address}</p>
+                      <p className="truncate text-xs text-slate-500">
+                        {providerLabel(a)} · sender “{a.sender_name}”
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {a.is_default && <Badge tone="info">Default</Badge>}
+                    <Badge tone={a.is_active ? "success" : "neutral"}>{a.is_active ? "Active" : "Inactive"}</Badge>
+                    {a.account_type === "OAUTH" ? (
+                      <Badge tone={a.oauth_connected ? "teal" : "danger"}>{a.oauth_connected ? "Connected" : "Not connected"}</Badge>
+                    ) : (
+                      <Badge tone={a.password_configured ? "teal" : "warning"}>
+                        {a.password_configured ? "Password configured" : "No password"}
+                      </Badge>
+                    )}
+                    {a.last_test_success === null ? (
+                      <Badge>Not tested</Badge>
+                    ) : a.last_test_success ? (
+                      <Badge tone="success">Test passed</Badge>
+                    ) : (
+                      <Badge tone="danger">Test failed</Badge>
+                    )}
+                  </div>
+                  {a.last_tested_at && <p className="mt-2 text-xs text-slate-500">Last test {new Date(a.last_tested_at).toLocaleString()}</p>}
+                  {testResults[a.id] && (
+                    <p className={cx("mt-2 text-xs font-medium", testResults[a.id].success ? "text-emerald-700" : "text-red-600")}>
+                      {testResults[a.id].message}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                    <button className={buttonClass("secondary", "sm")} disabled={busy === a.id} onClick={() => runTest(a)}>
+                      {busy === a.id ? <Spinner className="size-3" /> : <Icon name="send" className="size-3.5" />} Test
+                    </button>
+                    {!a.is_default && a.is_active && (
+                      <button
+                        className={buttonClass("secondary", "sm")}
+                        disabled={busy === a.id}
+                        onClick={() => act(a.id, () => api.setDefaultEmailAccount(a.id), `${a.account_name} is now the default account.`)}
+                      >
+                        <Icon name="star" className="size-3.5" /> Set default
+                      </button>
+                    )}
+                    <button
+                      className={buttonClass("secondary", "sm")}
+                      disabled={busy === a.id}
+                      onClick={() =>
+                        act(a.id, () => api.updateEmailAccount(a.id, { is_active: !a.is_active }), a.is_active ? "Account deactivated." : "Account activated.")
+                      }
+                    >
+                      <Icon name="power" className="size-3.5" /> {a.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                    <button className={buttonClass("secondary", "sm")} onClick={() => startEdit(a)}>
+                      <Icon name="edit" className="size-3.5" /> Edit
+                    </button>
+                    <button
+                      className={buttonClass("ghost", "sm", "text-red-600 hover:bg-red-50 hover:text-red-700")}
+                      disabled={busy === a.id}
+                      aria-label={`Delete ${a.account_name}`}
+                      onClick={() => {
+                        if (window.confirm(`Delete ${a.account_name}? History keeps the sender address.`))
+                          act(a.id, () => api.deleteEmailAccount(a.id), "Account deleted.");
+                      }}
+                    >
+                      <Icon name="trash" className="size-3.5" /> Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          </>
+          </div>
         )}
-      </div>
+      </Card>
 
       {editing !== null && (
-        <form className="card" onSubmit={onSave} noValidate autoComplete="off">
-          <h2>{isNew ? "Add SMTP account" : `Edit ${editing.account_name}`}</h2>
-          <div className="grid grid-2">
-            {isNew && (
-              <Field label="Provider" htmlFor="provider" hint={PROVIDERS.find((p) => p.value === form.provider)?.hint} className="span-2">
-                <select id="provider" value={form.provider} onChange={set("provider")}>
-                  {PROVIDERS.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            {input("account_name", "Account name *", { placeholder: "Sales mailbox" })}
-            {input("email_address", "Email address *", { type: "email", disabled: isOauth })}
-            {input("sender_name", "Sender name *", { placeholder: "Anjali from ABC Technologies" })}
-            {input("reply_to", "Reply-to email", { type: "email", hint: "Optional." })}
-            {needsServer && (
-              <>
-                {input("smtp_host", "SMTP host *", { placeholder: "smtp.example.com" })}
-                {input("smtp_port", "SMTP port *", { type: "number" })}
-                <Field label="Security *" htmlFor="security_type">
-                  <select id="security_type" value={form.security_type} onChange={set("security_type")}>
-                    {SECURITY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
+        <Card className="mt-5">
+          <form onSubmit={onSave} noValidate autoComplete="off">
+            <CardHeader
+              icon={isNew ? "plus" : "edit"}
+              title={isNew ? "Add SMTP account" : `Edit ${editing.account_name}`}
+              description={isNew ? "Passwords are stored encrypted and never shown again." : undefined}
+            />
+            <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+              {isNew && (
+                <Field label="Provider" htmlFor="provider" hint={PROVIDERS.find((p) => p.value === form.provider)?.hint} className="sm:col-span-2">
+                  <select id="provider" value={form.provider} onChange={set("provider")}>
+                    {PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
                       </option>
                     ))}
                   </select>
                 </Field>
-              </>
-            )}
-            {!isOauth && input("smtp_username", "SMTP username", { hint: "Defaults to the email address." })}
-            {!isOauth &&
-              input("password", isNew ? "Password / app password *" : "Password / app password", {
-                type: "password",
-                hint: isNew
-                  ? "Stored encrypted and never shown again. Gmail needs an App Password."
-                  : "Leave blank to keep the saved password.",
-              })}
-            {isNew && (
-              <label className="checkbox span-2">
-                <input type="checkbox" checked={form.is_default} onChange={set("is_default")} />
-                Make this the default sending account
-              </label>
-            )}
-          </div>
-          <div className="form-actions">
-            <SubmitButton loading={saving}>{isNew ? "Add account" : "Save changes"}</SubmitButton>
-            <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+              )}
+              {input("account_name", "Account name *", { placeholder: "Sales mailbox" })}
+              {input("email_address", "Email address *", { type: "email", disabled: isOauth })}
+              {input("sender_name", "Sender name *", { placeholder: "Anjali from ABC Technologies" })}
+              {input("reply_to", "Reply-to email", { type: "email", hint: "Optional." })}
+              {needsServer && (
+                <>
+                  {input("smtp_host", "SMTP host *", { placeholder: "smtp.example.com" })}
+                  {input("smtp_port", "SMTP port *", { type: "number" })}
+                  <Field label="Security *" htmlFor="security_type">
+                    <select id="security_type" value={form.security_type} onChange={set("security_type")}>
+                      {SECURITY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </>
+              )}
+              {!isOauth && input("smtp_username", "SMTP username", { hint: "Defaults to the email address." })}
+              {!isOauth &&
+                input("password", isNew ? "Password / app password *" : "Password / app password", {
+                  type: "password",
+                  hint: isNew ? "Stored encrypted and never shown again. Gmail needs an App Password." : "Leave blank to keep the saved password.",
+                })}
+              {isNew && (
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  <input type="checkbox" checked={form.is_default} onChange={set("is_default")} />
+                  Make this the default sending account
+                </label>
+              )}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
+              <button type="button" className={buttonClass("secondary")} onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+              <SubmitButton loading={saving}>{isNew ? "Add account" : "Save changes"}</SubmitButton>
+            </div>
+          </form>
+        </Card>
       )}
     </>
   );

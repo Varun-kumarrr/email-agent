@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { AuthCard } from "@/components/AuthCard";
 import { Alert, Field, LoadingScreen, SubmitButton } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 
@@ -55,14 +56,19 @@ function LoginForm() {
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="card auth-card">
-        <h1>Log in</h1>
-        <p className="subtitle">Welcome back to Email Agent.</p>
+    <AuthCard
+      title="Log in"
+      subtitle="Welcome back to Email Agent."
+      footer={
+        <>
+          No account? <Link href="/register" className="font-semibold">Create one</Link>
+        </>
+      }
+    >
         {params.get("expired") && <Alert kind="warning">Your session has expired. Please log in again.</Alert>}
         {params.get("registered") && <Alert kind="success">Account created. Please log in.</Alert>}
         <Alert kind="error">{error}</Alert>
-        <form className="stack" onSubmit={onSubmit} noValidate>
+        <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
           <Field label="Email" htmlFor="email" error={errors.email}>
             <input
               id="email"
@@ -83,13 +89,11 @@ function LoginForm() {
               className={errors.password ? "invalid" : ""}
             />
           </Field>
-          <SubmitButton loading={submitting}>Log in</SubmitButton>
+          <SubmitButton loading={submitting} className="w-full">
+            Log in
+          </SubmitButton>
         </form>
-        <p className="muted" style={{ marginTop: 16 }}>
-          No account? <Link href="/register">Create one</Link>
-        </p>
-      </div>
-    </div>
+    </AuthCard>
   );
 }
 
