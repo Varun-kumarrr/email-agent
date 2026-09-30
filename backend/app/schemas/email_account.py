@@ -11,7 +11,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.models.enums import AccountType, EmailProvider, SecurityType
-from app.schemas.common import Text
+from app.schemas.common import SingleLineText, Text
 from app.schemas.email_config import SmtpHost, SmtpPassword, SmtpPort
 
 # Well-known SMTP settings used when the provider is chosen and host/port are omitted.
@@ -27,7 +27,7 @@ class EmailAccountCreate(BaseModel):
     account_name: Text(120, min_length=1) = Field(examples=["Sales mailbox"])
     provider: EmailProvider = Field(default=EmailProvider.GENERIC, examples=[EmailProvider.GMAIL])
     email_address: EmailStr = Field(examples=["anjali@abctech.com"])
-    sender_name: Text(120, min_length=1) = Field(examples=["Anjali from ABC Technologies"])
+    sender_name: SingleLineText(120, min_length=1) = Field(examples=["Anjali from ABC Technologies"])
     reply_to: EmailStr | None = None
     smtp_host: SmtpHost | None = Field(default=None, description="Optional for GMAIL/OUTLOOK (preset used).")
     smtp_port: SmtpPort | None = None
@@ -56,7 +56,7 @@ class EmailAccountUpdate(BaseModel):
 
     account_name: Text(120, min_length=1) | None = None
     email_address: EmailStr | None = None
-    sender_name: Text(120, min_length=1) | None = None
+    sender_name: SingleLineText(120, min_length=1) | None = None
     reply_to: EmailStr | None = Field(default=None, description="Send null to clear.")
     smtp_host: SmtpHost | None = None
     smtp_port: SmtpPort | None = None

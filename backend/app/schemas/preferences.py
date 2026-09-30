@@ -4,7 +4,7 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, EmailStr, Field, field_validator
 
 from app.models.enums import EmailFormat
-from app.schemas.common import Text
+from app.schemas.common import SingleLineText, Text
 
 
 def _dedupe(emails: list[str]) -> list[str]:
@@ -21,7 +21,7 @@ ExtraValue = str | int | float | bool | None
 
 
 class PreferencesUpdate(BaseModel):
-    sender_name: Text(120) | None = Field(
+    sender_name: SingleLineText(120) | None = Field(
         default=None, description="Overrides the sender name from the email configuration."
     )
     reply_to: EmailStr | None = Field(

@@ -99,12 +99,22 @@ def read_root():
 @app.get(
     "/health",
     tags=["Health"],
-    summary="Readiness check (API + database)",
-    description="Used by Docker health checks. Returns 503 if the database is unreachable.",
+    summary="Readiness check (API + database, + email queue in background mode)",
+    description=(
+        "Used by Docker health checks. Returns 503 if the database is unreachable, or, when "
+        "EMAIL_DELIVERY_MODE=celery, if the Redis email queue is unreachable (`queue` field). "
+        "`GET /` is the dependency-free liveness check."
+    ),
 )
 def health(db: DbSession):
     try:
         db.execute(text("SELECT 1"))
     except SQLAlchemyError:
         return JSONResponse(status_code=503, content={"status": "unavailable", "database": "unreachable"})
-    return {"status": "ok", "database": "ok"}
+    if settings.EMAIL_DELIVERY_MODE != "celery":
+        return {"status": "ok", "database": "ok"}  # no queue is used in sync mode
+    from app.worker.celery_app import broker_reachable  # only imported when background delivery is on
+
+    if not broker_reachable():
+        return JSONResponse(status_code=503, content={"status": "unavailable", "database": "ok", "queue": "unreachable"})
+    return {"status": "ok", "database": "ok", "queue": "ok"}

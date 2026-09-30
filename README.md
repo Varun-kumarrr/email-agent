@@ -228,7 +228,9 @@ Design notes:
   (rejects `alg: none`), `exp` required. Missing / invalid / expired / unknown-user tokens → **401**
   with `WWW-Authenticate: Bearer`. Lifetime: `ACCESS_TOKEN_EXPIRE_MINUTES` (default 60).
 * Passwords hashed with **bcrypt**. Hashes never leave the database.
-* Login (per IP + email) and registration (per IP) are rate limited (429 + `Retry-After`).
+* Rate limits (429 + `Retry-After`): **failed** logins per IP + email (10 per 5 minutes; successful logins
+  are not counted, and once the limit is reached even a correct password is refused until the window
+  passes) and registrations per IP.
 
 ## 8. Authorization & company isolation
 
@@ -345,8 +347,12 @@ POST /api/v1/email-accounts
 * Spaces are removed from Gmail App Passwords (Google displays them in groups of four).
 * The password is **write-only**: a `SecretStr` in the request, Fernet-encrypted at rest, decrypted
   only at the moment of an SMTP login.
-* **SSRF guard**: with `SMTP_ALLOW_PRIVATE_HOSTS=false`, hosts that resolve to private, loopback or
-  link-local addresses are refused (`host_not_allowed`).
+* **SSRF guard**: with `SMTP_ALLOW_PRIVATE_HOSTS=false`, every address the host resolves to must be
+  **globally routable** unicast (`ipaddress.is_global`, multicast excluded). Private, loopback,
+  link-local, reserved, documentation and shared/CGNAT ranges (100.64.0.0/10, e.g. cloud metadata at
+  100.100.100.200) are refused with `host_not_allowed`.
+* **Sender names** (accounts, preferences, legacy config) must be a single line: CR, LF and every other
+  line-boundary character that email headers reject return 422.
 
 Common settings:
 
@@ -376,7 +382,8 @@ message, updates `last_tested_at` / `last_test_success`, and records the attempt
 | `recipient_refused`, `sender_refused` | Rejected addresses |
 | `feature_unsupported` | e.g. STARTTLS not offered |
 | `smtp_error` | Any other SMTP reply (code only, no raw server text) |
-| `host_not_allowed` | Host resolves to a private address while `SMTP_ALLOW_PRIVATE_HOSTS=false` |
+| `host_not_allowed` | Host resolves to a non-public address (private, loopback, link-local, CGNAT, …) while `SMTP_ALLOW_PRIVATE_HOSTS=false` |
+| `unexpected_error` | Any unclassified failure (e.g. a bug or unreadable stored data): the email is marked `FAILED`, never left `SENDING` |
 
 For Gmail and Outlook, failure messages include a provider-specific hint (e.g. "use an App Password").
 
@@ -653,7 +660,7 @@ reply-to → signature → a history row is saved as **`QUEUED`** → delivery �
 | Mode (`EMAIL_DELIVERY_MODE`) | Behaviour | Response |
 |---|---|---|
 | `sync` (default in `backend/.env.example`) | Delivered inside the request, transient failures retried inline with a short backoff | **200** with status `SENT`, or **502** `email_send_failed` with a safe message and the history ID |
-| `celery` (default in Docker Compose) | The history ID is queued in Redis; the worker delivers it | **202** with status `QUEUED` and `task_id`; **503** `queue_unavailable` if Redis is unreachable (the row is marked `FAILED`) |
+| `celery` (default in Docker Compose) | The history ID is queued in Redis; the worker delivers it | **202** with status `QUEUED` and `task_id`; **503** `queue_unavailable` if Redis is unreachable (the row is marked `FAILED`); bounded by a 2 s connect / 5 s read timeout and one publish retry (measured in Docker: ~4 s with the Redis container stopped — Docker's DNS takes ~4 s to report a stopped service — and ~5 s with Redis hung) |
 
 Delivery states (`app/services/email_delivery.py`):
 
@@ -702,10 +709,13 @@ and set `EMAIL_DELIVERY_MODE=celery` for the backend. Docker Compose starts Redi
 
 ## 20. Retry behaviour
 
-* **Transient** errors are retried: SMTP timeouts, disconnects, connection errors and 4xx replies;
-  Gmail API 429/5xx, timeouts and network errors.
+* **Transient** errors are retried: SMTP timeouts, disconnects, refused connections, host names that
+  cannot be resolved (a server that is restarting or briefly unreachable) and 4xx replies; Gmail API
+  429/5xx, timeouts and network errors. A mistyped host or port therefore fails only after the retries.
 * **Permanent** errors are not retried: authentication failures, rejected recipients/senders, 5xx
-  SMTP replies, a revoked Gmail refresh token, a missing or inactive account.
+  SMTP replies, a host blocked by the SSRF guard, unreadable stored credentials, a revoked Gmail refresh
+  token, a missing or inactive account, and any unexpected error (`unexpected_error`).
+* Every attempt ends in `SENT`, `RETRYING` or `FAILED`; an email is never left in `SENDING` by an error.
 * The limit comes from the company's `max_send_retries` preference (0–5): an email gets at most
   `1 + max_send_retries` attempts. `attempts` is recorded on the history row.
 * **Background mode**: the task re-queues itself with exponential backoff and jitter:
@@ -737,7 +747,7 @@ sender email and name, reply-to, recipient, CC, BCC, subject, final body (with s
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/` · `/health` | – | Liveness · health incl. database check (503 if unreachable) |
+| GET | `/` · `/health` | – | Liveness (no dependencies) · readiness: database, plus the Redis queue when `EMAIL_DELIVERY_MODE=celery` (503 with `database`/`queue` `unreachable`) |
 | POST | `/api/v1/auth/register` · `/api/v1/auth/login` | – | Register · log in → JWT |
 | GET | `/api/v1/auth/me` | ✔ | Current user |
 | POST / GET / PUT | `/api/v1/company` | ✔ | Company profile |
@@ -879,7 +889,7 @@ docker compose down                         # stop (add -v only to delete the da
 |---|---|---|---|
 | `db` | `postgres:18` | 5433 → 5432 | Health check `pg_isready`; volume `pgdata` |
 | `redis` | `redis:7-alpine` | 6379 | Celery broker; no persistence |
-| `backend` | `./backend` | 8000 | Runs `alembic upgrade head`, then Uvicorn as a non-root user; health check `/health` |
+| `backend` | `./backend` | 8000 | Runs `alembic upgrade head`, then Uvicorn as a non-root user; health check `/health` (database + Redis queue) |
 | `worker` | `./backend` | – | `celery -A app.worker.celery_app worker -Q email --concurrency=2`; health check `celery inspect ping` |
 | `frontend` | `./frontend` (Next.js standalone) | 3000 | `NEXT_PUBLIC_API_URL` is a build argument |
 | `mailpit` | `axllent/mailpit` (profile `mail`) | 8025 (web), 1025 (SMTP) | Local SMTP catcher; requires `SMTP_ALLOW_PRIVATE_HOSTS=true` for that session |
@@ -891,7 +901,9 @@ docker compose down                         # stop (add -v only to delete the da
 
 What was run for real with Docker (Docker Desktop 29.8, Compose v5.5): all services built and became
 healthy; migrations applied; a background send through Redis + Celery to Mailpit was verified end to
-end; a retry was verified by pausing Mailpit (`RETRYING` → `SENT` on attempt 2). Gmail OAuth was not
+end; retries were verified by pausing Mailpit and by stopping and restarting the Mailpit container
+(`RETRYING` → `SENT` on attempt 2, one copy delivered), and a permanent outage ends `FAILED` after the
+retry limit. With Redis stopped or hung, `/health` reports `queue: unreachable` and sends return 503. Gmail OAuth was not
 configured inside the Docker stack (see section 30).
 
 ## 27. Testing
@@ -946,7 +958,7 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 * **CORS**: explicit origins from `ALLOWED_ORIGINS` (`*` filtered out); no credentialed CORS.
 * **Security headers**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, `Cache-Control: no-store` on API responses.
-* **Rate limits** (in-memory): login, registration, AI generation, OAuth authorize.
+* **Rate limits** (in-memory, per process): failed logins, registration, AI generation, OAuth authorize.
 * **Frontend**: only `NEXT_PUBLIC_API_URL` is exposed; React escapes output (no raw HTML rendering).
 * **Git**: `.env` files ignored; only `.env.example` templates with placeholder values are committed.
 * **Production guard**: with `ENVIRONMENT=production` the app refuses to start without a strong
@@ -976,7 +988,7 @@ cd ../frontend && npm run lint && npx tsc --noEmit && npm run build
 | Backend automated tests | Pass on PostgreSQL (see section 27) |
 | Frontend lint / type check / build | Pass |
 | Docker Compose stack | Built and healthy (db, redis, backend, worker, frontend, Mailpit) |
-| Background delivery (Redis + Celery) to Mailpit | Verified end to end, including a real retry |
+| Background delivery (Redis + Celery) to Mailpit | Verified end to end, including retries after a paused and a stopped/restarted SMTP server, and Redis outages (503, `/health` degraded) |
 | **Gmail OAuth connection** | Verified with a real Google account and Google Cloud client (Testing mode) |
 | **Gmail API delivery** | Verified: account Test email, and a real background send (API → Redis → Celery worker → Gmail API → `SENT`, 1 attempt, token refreshed automatically) |
 | Local SMTP delivery (Mailpit / local SMTP server) | Verified |

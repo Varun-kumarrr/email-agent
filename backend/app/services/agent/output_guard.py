@@ -10,14 +10,14 @@ import re
 
 from app.services.agent.prompts import SYSTEM_PROMPT_CANARY
 from app.services.llm import GeneratedEmail, LLMError
+from app.utils.text import to_single_line
 
 MAX_SUBJECT = 200
 MAX_BODY = 10000
 
 
 def clean_subject(subject: str) -> str:
-    subject = re.sub(r"[\r\n\t]+", " ", subject)
-    subject = re.sub(r"\s{2,}", " ", subject).strip()
+    subject = re.sub(r"\s{2,}", " ", to_single_line(subject)).strip()
     return subject[:MAX_SUBJECT]
 
 

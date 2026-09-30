@@ -5,6 +5,7 @@ POST creates the first SMTP account (409 if one exists), GET/PUT read and update
 /test sends a test email through it. New clients should use /api/v1/email-accounts.
 """
 
+import logging
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
@@ -23,7 +24,9 @@ from app.services.email_account_service import (
     with_provider_hint,
 )
 from app.services.gmail_delivery import is_gmail_oauth, send_via_gmail
-from app.services.smtp_client import SmtpSendError
+from app.services.smtp_client import SmtpSendError, unexpected_error
+
+logger = logging.getLogger(__name__)
 
 # Kept so existing imports keep working.
 build_credentials = build_smtp_credentials
@@ -94,19 +97,23 @@ class EmailConfigService:
         return self.accounts.update(company, account.id, EmailAccountUpdate(**changes))
 
 
+TEST_SUBJECT = "Email Agent: email account test"
+
+
+def _test_body(account: EmailAccount) -> str:
+    return f"This is a test email from Email Agent.\n\nThe email account {account.email_address} is working correctly."
+
+
 def build_test_message(account: EmailAccount, recipient: str) -> EmailMessage:
     message = EmailMessage()
-    message["Subject"] = "Email Agent: email account test"
+    message["Subject"] = TEST_SUBJECT
     message["From"] = formataddr((account.sender_name, account.email_address))
     message["To"] = recipient
     if account.reply_to:
         message["Reply-To"] = account.reply_to
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid(domain=account.email_address.split("@")[-1])
-    message.set_content(
-        "This is a test email from Email Agent.\n\n"
-        f"The email account {account.email_address} is working correctly."
-    )
+    message.set_content(_test_body(account))
     return message
 
 
@@ -114,9 +121,9 @@ def run_account_test(db: Session, account: EmailAccount, recipient: str, user: U
     """Send a test email through `account`, record the result on the account ("Last test")
     and in the email history as a test email (is_test=True)."""
     now = datetime.now(timezone.utc)
-    message = build_test_message(account, recipient)
     error: SmtpSendError | None = None
     try:
+        message = build_test_message(account, recipient)
         if account.account_type == AccountType.SMTP:
             smtp_client.send_message(build_smtp_credentials(account), message)
         elif is_gmail_oauth(account):
@@ -124,8 +131,14 @@ def run_account_test(db: Session, account: EmailAccount, recipient: str, user: U
         else:
             raise SmtpSendError("not_supported", "Testing this account type is not supported yet.")
         result = SmtpTestResponse(success=True, message=f"Test email sent to {recipient}.", tested_at=now)
-    except SmtpSendError as exc:
-        error = with_provider_hint(exc, account.provider)
+    except Exception as exc:  # the test always reports and records a result, never a 500
+        if isinstance(exc, SmtpSendError):
+            error = with_provider_hint(exc, account.provider)
+        else:
+            # Only the exception type is logged: messages can contain sensitive values.
+            logger.error("Account test for %s: unexpected %s", account.id, type(exc).__name__)
+            db.rollback()
+            error = unexpected_error()
         result = SmtpTestResponse(success=False, message=error.message, error_code=error.code, tested_at=now)
 
     account.last_tested_at = now
@@ -141,8 +154,8 @@ def run_account_test(db: Session, account: EmailAccount, recipient: str, user: U
             recipient=recipient.lower(),
             cc=[],
             bcc=[],
-            subject=message["Subject"],
-            body=message.get_content().strip(),
+            subject=TEST_SUBJECT,
+            body=_test_body(account),
             email_format=EmailFormat.PLAIN_TEXT,
             status=EmailStatus.SENT if result.success else EmailStatus.FAILED,
             error_code=error.code if error else None,

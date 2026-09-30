@@ -84,7 +84,7 @@ against a live external service are stated explicitly.
 | Docker / Docker Compose | Yes | Run for real | db, redis, backend, worker, frontend (+ Mailpit profile) built and healthy |
 | Background email processing (Celery + Redis) | Yes | Yes (eager) + real runs | Real end-to-end runs: Mailpit (Docker) and Gmail API (local worker + Docker Redis) |
 | Email sending history / logs | Yes | Yes | Delivery status, attempts, account used, task id, test-email records |
-| Retry mechanism | Yes | Yes + real run | Bounded by `max_send_retries`; exponential backoff with jitter in background mode; real retry verified with a paused Mailpit |
+| Retry mechanism | Yes | Yes + real run | Bounded by `max_send_retries`; exponential backoff with jitter in background mode; real retries verified with a paused Mailpit and a stopped/restarted Mailpit container; permanent outages end `FAILED` after the limit |
 | Email templates | Yes | Yes | Safe `{{ variable }}` rendering, preview, agent integration |
 | Multiple email accounts per company | Yes | Yes | Default account (partial unique index), explicit selection (API + *Send from* picker on the agent page), server-side ownership checks |
 | OAuth-based Gmail integration | Yes | Yes (fake Google) + real run | Real Google connection, Test email and background send verified |

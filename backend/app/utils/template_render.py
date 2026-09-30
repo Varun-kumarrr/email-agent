@@ -13,6 +13,8 @@ rendered into subjects (a subject becomes an email header).
 import html
 import re
 
+from app.utils.text import to_single_line
+
 MAX_VALUE_LENGTH = 1000
 _NAME = r"[A-Za-z_][A-Za-z0-9_]{0,63}"
 PLACEHOLDER = re.compile(r"\{\{\s*(" + _NAME + r")\s*\}\}")
@@ -50,7 +52,7 @@ def extract_variables(*texts: str) -> list[str]:
 def _clean_value(value, *, single_line: bool) -> str:
     text = str(value)[:MAX_VALUE_LENGTH]
     if single_line:
-        text = re.sub(r"[\r\n\t]+", " ", text).strip()
+        text = to_single_line(text)
     return text
 
 

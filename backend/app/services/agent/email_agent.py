@@ -119,7 +119,9 @@ class EmailAgentService:
             # A provider chain reports which provider wrote the email, and a warning if it was not the first.
             return guard_output(raw), raw.provider or self.provider.name, raw.warning is not None, raw.warning
         except LLMError as error:
-            logger.warning("LLM provider %s failed code=%s", self.provider.name, error.code)
+            # A provider chain reports all of its providers, not just the first one's name.
+            providers = [p.name for p in getattr(self.provider, "providers", [self.provider])]
+            logger.warning("LLM generation failed: all providers failed (%s) code=%s", ", ".join(providers), error.code)
             if not settings.LLM_FALLBACK_TO_MOCK or isinstance(self.provider, MockLLMProvider):
                 raise ServiceUnavailableError(error.message, details={"code": error.code})
             email = guard_output(MockLLMProvider().generate_email(request))

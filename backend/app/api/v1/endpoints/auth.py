@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, status
 
 from app.core.dependencies import CurrentUser, DbSession
+from app.core.exceptions import UnauthorizedError
 from app.core.rate_limit import client_ip, login_limiter, register_limiter
 from app.schemas.errors import ErrorResponse
 from app.schemas.user import TokenResponse, UserLogin, UserRegister, UserResponse
@@ -34,9 +35,15 @@ def register(data: UserRegister, request: Request, db: DbSession):
     },
 )
 def login(data: UserLogin, request: Request, db: DbSession):
-    # Limit per IP + account so one attacker can't lock out every user.
-    login_limiter.hit(f"{client_ip(request)}:{data.email.lower()}")
-    return AuthService(db).login(data)
+    # Limit failed attempts per IP + account so one attacker can't lock out every user.
+    # Only failures count; once the limit is reached even a correct password gets 429.
+    key = f"{client_ip(request)}:{data.email.lower()}"
+    login_limiter.check(key)
+    try:
+        return AuthService(db).login(data)
+    except UnauthorizedError:
+        login_limiter.record(key)
+        raise
 
 
 @router.get("/me", response_model=UserResponse, summary="Get the authenticated user")

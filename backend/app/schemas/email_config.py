@@ -5,7 +5,7 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 from app.models.enums import SecurityType
-from app.schemas.common import Text
+from app.schemas.common import SingleLineText, Text
 
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
@@ -31,7 +31,7 @@ class EmailConfigBase(BaseModel):
     smtp_port: SmtpPort
     username: Text(255, min_length=1) = Field(examples=["anjali@abctech.com"])
     security_type: SecurityType = Field(examples=[SecurityType.STARTTLS])
-    sender_name: Text(120, min_length=1) = Field(examples=["Anjali from ABC Technologies"])
+    sender_name: SingleLineText(120, min_length=1) = Field(examples=["Anjali from ABC Technologies"])
     reply_to: EmailStr | None = Field(default=None, examples=["sales@abctech.com"])
 
 

@@ -8,6 +8,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, fie
 from app.models.enums import EmailFormat
 from app.schemas.common import Text
 from app.utils.template_render import MAX_VALUE_LENGTH, TemplateSyntaxError, validate_template
+from app.utils.text import is_single_line
 
 
 def _check_template(value: str) -> str:
@@ -19,7 +20,7 @@ def _check_template(value: str) -> str:
 
 
 def _check_subject(value: str) -> str:
-    if "\r" in value or "\n" in value:
+    if not is_single_line(value):
         raise ValueError("Subject must be a single line")
     return _check_template(value)
 

@@ -12,9 +12,10 @@ from tests.test_email_config import SMTP_SETTINGS, create_config
 
 
 def test_login_rate_limited(client):
-    register_and_login(client)
-    for _ in range(9):  # register_and_login already used one attempt
+    register_and_login(client)  # a successful login does not count toward the limit
+    for _ in range(10):  # 10 failed attempts use up the budget
         client.post("/api/v1/auth/login", json={"email": "anjali@abctech.com", "password": "Wrong1234"})
+    # Once limited, even the correct password is refused (brute-force protection).
     response = client.post("/api/v1/auth/login", json={"email": "anjali@abctech.com", "password": DEFAULT_PASSWORD})
     assert response.status_code == 429
     assert response.json()["error"]["code"] == "rate_limited"

@@ -22,12 +22,31 @@ class RateLimiter:
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
-    def hit(self, key: str) -> None:
+    def _prune(self, key: str, now: float) -> deque[float]:
+        hits = self._hits[key]
+        while hits and now - hits[0] > self.window:
+            hits.popleft()
+        return hits
+
+    def check(self, key: str) -> None:
+        """Raise RateLimitError if `key` is over the limit, without counting this call."""
         now = time.monotonic()
         with self._lock:
-            hits = self._hits[key]
-            while hits and now - hits[0] > self.window:
-                hits.popleft()
+            hits = self._prune(key, now)
+            if len(hits) >= self.max_calls:
+                retry_after = int(self.window - (now - hits[0])) + 1
+                raise RateLimitError(self.message, headers={"Retry-After": str(retry_after)})
+
+    def record(self, key: str) -> None:
+        """Count one call against `key`."""
+        with self._lock:
+            self._hits[key].append(time.monotonic())
+
+    def hit(self, key: str) -> None:
+        """Check the limit, then count this call."""
+        now = time.monotonic()
+        with self._lock:
+            hits = self._prune(key, now)
             if len(hits) >= self.max_calls:
                 retry_after = int(self.window - (now - hits[0])) + 1
                 raise RateLimitError(self.message, headers={"Retry-After": str(retry_after)})

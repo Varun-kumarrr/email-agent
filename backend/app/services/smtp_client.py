@@ -38,6 +38,11 @@ class SmtpSendError(Exception):
         super().__init__(message)
 
 
+def unexpected_error() -> SmtpSendError:
+    """Safe, permanent error for failures that are not classified (e.g. a bug or bad stored data)."""
+    return SmtpSendError("unexpected_error", "An unexpected error occurred while sending. The email was not sent.")
+
+
 def classify_error(exc: BaseException) -> SmtpSendError:
     """Map an exception to a safe error. Never includes the raw exception text,
     which can contain server responses, usernames or other details."""
@@ -79,14 +84,17 @@ def classify_error(exc: BaseException) -> SmtpSendError:
             "TLS/SSL negotiation failed. Check the security type matches the port "
             "(usually 465 = SSL/TLS, 587 = STARTTLS, 25 = NONE).",
         )
+    # Connection-level failures are retried (bounded by max_send_retries): a server that is
+    # restarting refuses connections, and a host name can be briefly unresolvable during an
+    # outage. A mistyped host or port therefore fails only after the retries are used up.
     if isinstance(exc, socket.gaierror):
-        return SmtpSendError("invalid_host", "The SMTP host could not be found. Check the host name.")
+        return SmtpSendError("invalid_host", "The SMTP host could not be found. Check the host name.", transient=True)
     if isinstance(exc, (TimeoutError, socket.timeout)):
         return SmtpSendError(
             "timeout", "Timed out connecting to the SMTP server. Check the host, port and firewall.", transient=True
         )
     if isinstance(exc, ConnectionRefusedError):
-        return SmtpSendError("connection_refused", "Connection refused. Check the SMTP host and port.")
+        return SmtpSendError("connection_refused", "Connection refused. Check the SMTP host and port.", transient=True)
     if isinstance(exc, OSError):
         return SmtpSendError("connection_failed", "Could not connect to the SMTP server.", transient=True)
     return SmtpSendError("unknown_error", "Unexpected error while sending email.")
@@ -105,14 +113,11 @@ def ensure_public_host(host: str, port: int) -> None:
         raise classify_error(exc) from None
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_reserved
-            or address.is_multicast
-            or address.is_unspecified
-        ):
+        # Allow only globally routable unicast addresses. `is_global` excludes private,
+        # loopback, link-local, reserved, unspecified and shared (100.64.0.0/10, e.g. cloud
+        # metadata at 100.100.100.200) ranges; multicast is excluded explicitly because
+        # Python counts IPv4 multicast as global.
+        if not address.is_global or address.is_multicast:
             raise SmtpSendError(
                 "host_not_allowed", "This SMTP host resolves to a private or internal address, which is not allowed."
             )

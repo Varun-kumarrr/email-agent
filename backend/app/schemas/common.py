@@ -5,6 +5,8 @@ from typing import Annotated
 
 from pydantic import AfterValidator, AnyHttpUrl, BeforeValidator, Field, TypeAdapter
 
+from app.utils.text import is_single_line
+
 _http_url = TypeAdapter(AnyHttpUrl)
 _PHONE_RE = re.compile(r"^\+?[0-9 ()\-.]{7,25}$")
 
@@ -41,6 +43,17 @@ def Text(max_length: int, min_length: int = 0):
     if min_length:
         validators.append(AfterValidator(_not_blank))
     return Annotated[str, *validators]
+
+
+def _single_line(value: str) -> str:
+    if not is_single_line(value):
+        raise ValueError("Must be a single line (no line breaks)")
+    return value
+
+
+def SingleLineText(max_length: int, min_length: int = 0):
+    """Text() that must not contain line breaks: for values used in email headers (e.g. a sender name)."""
+    return Annotated[Text(max_length, min_length), AfterValidator(_single_line)]
 
 
 HttpUrlStr = Annotated[str, BeforeValidator(_normalize_url), Field(max_length=500)]

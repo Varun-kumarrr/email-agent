@@ -27,7 +27,34 @@ celery_app.conf.update(
     task_time_limit=120,
     task_soft_time_limit=90,
     broker_connection_retry_on_startup=True,
-    broker_transport_options={"visibility_timeout": 3600},
+    # Fail fast when the broker is down: the API returns 503 "queue unavailable" within a few
+    # seconds instead of ~20 s (defaults: 4 s connect timeout x 4 publish attempts). One retry
+    # still absorbs a momentary blip; the broker is expected on the same network.
+    broker_connection_timeout=2,
+    task_publish_retry_policy={"max_retries": 1, "interval_start": 0, "interval_step": 0.5, "interval_max": 0.5},
+    # socket timeouts bound every Redis call, so a hung (not just stopped) Redis cannot block a
+    # request forever; 5 s stays above the worker's 1 s BRPOP poll.
+    broker_transport_options={"visibility_timeout": 3600, "socket_connect_timeout": 2, "socket_timeout": 5},
     worker_hijack_root_logger=False,
     timezone="UTC",
 )
+
+
+def broker_reachable(timeout: float = 1.0, url: str | None = None) -> bool:
+    """Cheap broker check for /health: a Redis PING with connect *and* read timeouts, so a hung
+    Redis cannot block the request (DNS resolution time is outside the application's control)."""
+    url = url or celery_broker_url(settings)
+    try:
+        if url.startswith(("redis://", "rediss://")):
+            import redis
+
+            client = redis.Redis.from_url(url, socket_connect_timeout=timeout, socket_timeout=timeout)
+            try:
+                return bool(client.ping())
+            finally:
+                client.close()
+        with celery_app.connection_for_write(url) as conn:  # other transports (e.g. memory:// in tests)
+            conn.ensure_connection(max_retries=0, timeout=timeout)
+        return True
+    except Exception:
+        return False

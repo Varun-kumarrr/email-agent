@@ -33,7 +33,7 @@ from app.services.email_account_service import build_smtp_credentials, with_prov
 from app.services.email_composer import build_message, looks_like_html
 from app.services.gmail_delivery import is_gmail_oauth, send_via_gmail
 from app.services.preferences_service import PreferencesService
-from app.services.smtp_client import SmtpSendError
+from app.services.smtp_client import SmtpSendError, unexpected_error
 from app.utils.signature import append_signature
 
 logger = logging.getLogger(__name__)
@@ -112,9 +112,15 @@ def attempt_delivery(db: Session, history_id: uuid.UUID) -> DeliveryOutcome:
         if not account.is_active:
             raise SmtpSendError("account_inactive", "The email account used for this email is inactive.")
         _send_through_account(db, account, record)
-    except SmtpSendError as error:
-        if account is not None:
-            error = with_provider_hint(error, account.provider)
+    except Exception as exc:  # every failure must end in RETRYING or FAILED, never stay SENDING
+        if isinstance(exc, SmtpSendError):
+            error = with_provider_hint(exc, account.provider) if account is not None else exc
+        else:
+            # A bug or unreadable stored data: fail the email permanently. Only the exception type
+            # is logged, because exception messages can contain sensitive values.
+            logger.error("Email %s: unexpected %s during delivery", history_id, type(exc).__name__)
+            db.rollback()  # the session may be unusable after an unexpected error
+            error = unexpected_error()
         max_retries = PreferencesService(db).get_for_company_id(record.company_id).max_send_retries
         retry = error.transient and record.attempts <= max_retries
         record.status = EmailStatus.RETRYING if retry else EmailStatus.FAILED
