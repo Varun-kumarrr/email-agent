@@ -34,7 +34,7 @@ against a live external service are stated explicitly.
 | 20 | Password not exposed in logs | Yes | no credential logging + `core/logging.py` redaction | Yes — full-flow log capture tests | Verified in real backend / worker logs during the Gmail OAuth run |
 | 21 | Password not in frontend source | Yes | frontend only uses `NEXT_PUBLIC_API_URL` | Verified | |
 | 22 | Password not in database queries | Yes | encrypted column; `hide_parameters=True` | Yes | Ciphertext only at rest |
-| 23 | Production credential storage explained | Yes | README §29 | n/a | Secrets manager, KMS envelope encryption, OAuth |
+| 23 | Production credential storage explained | Yes | README "Security" | n/a | Secrets manager, KMS envelope encryption, OAuth |
 | 24 | Email signature (reusable) | Yes | `/api/v1/signature` | Yes — `test_signature.py` | |
 | 25 | Signature available to the agent | Yes | `services/agent/context.py` | Yes — `test_agent_signature.py` | Policy: appended on send / in body / none |
 | 26 | Preference: sender name | Yes | `/api/v1/preferences` | Yes — `test_preferences.py` | |
@@ -74,7 +74,7 @@ against a live external service are stated explicitly.
 | 60 | README (overview, architecture, stack, install, env vars, DB setup, API docs, email setup, agent, security, assumptions, limitations) | Yes | `README.md` | n/a | |
 | 61 | `.env.example` (`DATABASE_URL`, `SECRET_KEY`, `LLM_API_KEY`, …) | Yes | `backend/.env.example`, `.env.example` (Docker), `frontend/.env.example` | Verified placeholders only | |
 | 62 | Database schema / migrations | Yes | `backend/alembic/versions/0001`–`0006` | Yes — upgrade, downgrade, drift, data migration | |
-| 63 | API documentation | Yes | Swagger `/docs`, ReDoc `/redoc`, README §22 | Yes — `test_api_docs.py` | |
+| 63 | API documentation | Yes | Swagger `/docs`, ReDoc `/redoc`, README "API documentation" | Yes — `test_api_docs.py` | |
 
 ## Bonus items
 
